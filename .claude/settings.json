@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git merge:*)",
+      "Bash(git rebase:*)",
+      "Bash(git reset --hard:*)"
+    ],
+    "ask": [
+      "Bash(neorag run:*)",
+      "Bash(neorag predict:*)",
+      "Bash(neorag evaluate:*)",
+      "Bash(python -m neorag:*)",
+      "Bash(python -m streamlit:*)",
+      "Bash(streamlit:*)"
+    ]
+  }
+}

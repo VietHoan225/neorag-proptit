@@ -27,7 +27,7 @@ dev = ["pytest>=8.0", "ruff>=0.6", "pre-commit>=3.7"]
 neorag = "neorag.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/neorag"]
+packages = ["src/neorag", "src/s2b_rag"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
