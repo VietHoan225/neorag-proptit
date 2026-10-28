@@ -67,6 +67,8 @@ Chỉ ghi file do mình thêm/sửa; file của BTC xem `docs/guide.md` mục 8.
 |---|---|---|
 | `CLAUDE.md` | Hướng dẫn cho Claude Code | Đang dùng |
 | `.claude/settings.json` | Chặn git commit/push/merge/rebase/reset --hard; hỏi trước khi chạy lệnh tốn ngân sách (`neorag run/predict/evaluate`, streamlit) | Đang dùng |
+| `.claude/skills/explain/SKILL.md` | Skill `/explain`: giải thích code (mục đích, khái niệm, chỗ dễ sai) rồi hỏi 2–3 câu kiểm tra | Mới |
+| `.claude/skills/journal/SKILL.md` | Skill `/journal`: ghi một lần vấp vào `docs/journal.md`, cho xem nháp trước | Mới |
 | `docs/gitflow.md` | Quy ước nhánh, Conventional Commits | Đang dùng |
 | `docs/adr/0000-template.md` | Mẫu ADR | Template |
 | `docs/plan.md` | Kế hoạch tổng thể 26/10 → 08/11 (eval, retrieval, generation, chatbot, timeline, rủi ro) | Đang dùng, bị `.gitignore` |
