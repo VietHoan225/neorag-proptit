@@ -30,3 +30,7 @@ dist/
 Thumbs.db
 
 .claude/settings.local.json
+
+# Plan cá nhân (không commit)
+docs/plan.md
+docs/journal.md
