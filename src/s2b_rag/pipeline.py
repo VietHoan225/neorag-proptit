@@ -22,13 +22,15 @@ class S2BPipeline(RAGPipeline):
     def __init__(
         self,
         retriever: str = DEFAULT,
-        n_context: int = 5,
+        n_context: int = 8,
         n_retrieved: int = 10,
         llm: LLMClient | None = None,
     ):
         self.retriever_name = retriever
         self.retriever = RETRIEVERS[retriever]()
-        self.n_context = n_context  # số đoạn đưa vào prompt (5 = như baseline, để so công bằng)
+        # số đoạn đưa vào prompt. 8 thay vì 5: holdout có judge 86.03 -> 86.52 (SP, ROUGE-L, Relevancy tăng,
+        # Noise không đổi); dev: ~7/16 câu thiếu key fact vì đoạn đúng ở hạng 6-10. Xem docs/journal.md.
+        self.n_context = n_context
         self.n_retrieved = n_retrieved  # số id nộp; luôn ⊇ các đoạn trong prompt (Groundedness)
         self.llm_model = LLM_MODEL  # runner đọc thuộc tính này để in ra màn hình
         self.llm = llm or LLMClient(cache_path=CACHE_PATH)  # cache: chạy lại cùng prompt = 0 USD
@@ -50,3 +52,4 @@ class S2BPipeline(RAGPipeline):
         context = [self.docs[i] for i in retrieved_ids[: self.n_context]]
         answer = self.llm.chat(build_messages(query, context), model=self.llm_model)
         return RAGOutput(answer=postprocess(answer), retrieved_ids=retrieved_ids)
+
