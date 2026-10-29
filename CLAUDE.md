@@ -30,7 +30,8 @@ Repo tạo từ template của BTC (remote `upstream`). Tài liệu đề: `READ
   - **File thêm:** đường dẫn, và file đó có ý nghĩa gì trong pipeline (1 dòng/file).
   - **Cách kiểm tra:** lệnh để mình chạy thử (pytest, script...), kèm chi phí nếu có gọi LLM.
   - **Lệnh commit gợi ý** theo `docs/gitflow.md`.
-  - Cập nhật bảng **"Bản đồ file của mình"** bên dưới cho khớp (thêm dòng mới, sửa trạng thái).
+  - Trong `docs/plan.md`: tick bước vừa xong ở mục "Tiến độ", cập nhật bảng "Bản đồ file của mình"
+    (thêm dòng mới, sửa trạng thái). Sửa dòng "Đang làm" ở mục Trạng thái bên dưới.
 - **Nhật ký học `docs/journal.md`** (bị `.gitignore`): mỗi khi làm xong một kỹ thuật hoặc chốt một quyết định,
   thêm một mục theo mẫu ở đầu file: vấn đề (kèm số đo), khái niệm, vì sao chọn / đánh đổi, phương án đã cân
   nhắc, kết quả trước → sau (split, commit, chi phí), bài học / câu hỏi Q&A. Chỉ ghi số liệu đã đo thật.
@@ -55,28 +56,6 @@ Response Relevancy, 1 − Noise Sensitivity, Abstention). Groundedness tính tr�
 `retrieved_ids` (tối đa 10). Đáp án mẫu ngắn (~210 ký tự).
 
 ## Trạng thái hiện tại
-- Baseline train (`--no-judge`): Retrieval 0.72, SP 0.74, ROUGE-L 0.43. Public baseline: 52.40 (ngưỡng 53.40).
-- Điểm yếu: câu "không dấu/viết tắt" (R@5 0.44); câu trả lời dài TB 452 ký tự.
-- Plan: `docs/plan.md`. Đã xong bước 1 (tách dev 86 / holdout 40 + bản bỏ dấu).
-- Việc tiếp theo: bước 2 — script đo retrieval miễn phí, tái hiện dense baseline trên dev.
-
-## Bản đồ file của mình
-Chỉ ghi file do mình thêm/sửa; file của BTC xem `docs/guide.md` mục 8.
-
-| File | Tóm tắt | Trạng thái |
-|---|---|---|
-| `CLAUDE.md` | Hướng dẫn cho Claude Code | Đang dùng |
-| `.claude/settings.json` | Chặn git commit/push/merge/rebase/reset --hard; hỏi trước khi chạy lệnh tốn ngân sách (`neorag run/predict/evaluate`, streamlit) | Đang dùng |
-| `.claude/skills/explain/SKILL.md` | Skill `/explain`: giải thích code (mục đích, khái niệm, chỗ dễ sai) rồi hỏi 2–3 câu kiểm tra | Mới |
-| `.claude/skills/journal/SKILL.md` | Skill `/journal`: ghi một lần vấp vào `docs/journal.md`, cho xem nháp trước | Mới |
-| `docs/gitflow.md` | Quy ước nhánh, Conventional Commits | Đang dùng |
-| `docs/adr/0000-template.md` | Mẫu ADR | Template |
-| `docs/plan.md` | Kế hoạch tổng thể 26/10 → 08/11 (eval, retrieval, generation, chatbot, timeline, rủi ro) | Đang dùng, bị `.gitignore` |
-| `docs/journal.md` | Nhật ký học: mỗi kỹ thuật làm gì, vì sao, kết quả ra sao | Đang dùng, bị `.gitignore` |
-| `.gitignore` | Thêm `docs/plan.md`, `docs/journal.md` | Đã sửa |
-| `pyproject.toml` | Thêm `src/s2b_rag` vào danh sách package được đóng gói | Đã sửa (1 dòng) |
-| `src/s2b_rag/__init__.py` | Package chứa pipeline của mình | Đang dùng |
-| `src/s2b_rag/textnorm.py` | `strip_accents`: bỏ dấu tiếng Việt (cho bộ bỏ dấu, sau này cho BM25) | Mới |
-| `src/s2b_rag/eval/split.py` | Tách train → dev/holdout phân tầng theo type (seed 2026) + bản bỏ dấu | Mới |
-| `experiments/splits/*.jsonl` | dev, holdout, dev_noaccent, holdout_noaccent (sinh bởi `split.py`, commit) | Mới |
-| `tests/test_s2b_textnorm.py`, `tests/test_s2b_split.py` | Test cho 2 module trên | Mới |
+- Baseline BTC: train retrieval 0.72, SP 0.74, ROUGE-L 0.43; public 52.40 (ngưỡng 53.40).
+- **Tiến độ và bản đồ file: trong `docs/plan.md`** (mục "Tiến độ", "Bản đồ file của mình"). Đọc hai mục đó đầu mỗi phiên.
+- Đang làm: R1–R3 (chuẩn hoá query, BM25 hai kênh, RRF) trên nhánh `feature/retrieval`.

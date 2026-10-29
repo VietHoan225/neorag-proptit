@@ -1,0 +1,3 @@
+time,commit,dirty,system,split,n,recall@5,mrr@5,ndcg@5,retrieval,string_presence,rouge_l,generation,score,cost_usd,note
+2026-10-28T18:20:09,dfdb152,True,dense,dev,84,0.755,0.6903,0.6791,0.7081,,,,,,"dense baseline (BTC), reproduces official train numbers"
+2026-10-28T18:20:18,dfdb152,True,dense,dev_noaccent,84,0.5208,0.4968,0.4762,0.498,,,,,,"dense baseline (BTC), reproduces official train numbers"
