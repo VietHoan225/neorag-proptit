@@ -1,7 +1,7 @@
 """Pipeline nộp bài: `neorag run <split> --pipeline s2b_rag.pipeline:S2BPipeline`.
 
-query ─► retrieval preset (mặc định `hybrid_r7`: câu không dấu được haiku viết lại có dấu, rồi hybrid + rerank;
-         xem ADR-0003/0004 và docs/journal.md) ─► 10 id
+query ─► retrieval preset (mặc định `hybrid_r10`: câu không dấu được haiku viết lại có dấu, rồi hybrid + rerank
+         + quota CLB; xem ADR-0003/0004 và docs/journal.md) ─► 10 id
       └► `n_context` đoạn đầu vào prompt (G1) ─► claude-haiku-5-5 (1 lần gọi) ─► hậu xử lý (G2)
 
 Runner của BTC không truyền tham số khi khởi tạo pipeline, nên giá trị mặc định ở đây CHÍNH LÀ cấu hình nộp bài.

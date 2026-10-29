@@ -58,4 +58,4 @@ Response Relevancy, 1 − Noise Sensitivity, Abstention). Groundedness tính tr�
 ## Trạng thái hiện tại
 - Baseline BTC: train retrieval 0.72, SP 0.74, ROUGE-L 0.43; public 52.40 (ngưỡng 53.40).
 - **Tiến độ và bản đồ file: trong `docs/plan.md`** (mục "Tiến độ", "Bản đồ file của mình"). Đọc hai mục đó đầu mỗi phiên.
-- Đang làm: public #2 gốc 80.15 (R7). Tiếp theo: PR `feature/query-rewrite`, rồi chatbot demo hoặc Response Relevancy (0.567, thấp nhất).
+- Đang làm: R10 `hybrid_r10` (quota CLB sau reranker + "ba CLB"), nhánh `feature/multi-club-quota`. Tiếp theo: G5 sửa prompt giảm Noise (chờ duyệt ~0.09 USD), rồi chatbot demo.
