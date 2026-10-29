@@ -23,3 +23,11 @@ time,commit,dirty,system,split,n,recall@5,mrr@5,ndcg@5,retrieval,string_presence
 2026-10-29T08:02:02,17bacd4,True,hybrid_enrich,holdout_noaccent,38,0.8202,0.7719,0.7577,0.7833,,,,,,holdout: R4
 2026-10-29T08:02:09,17bacd4,True,hybrid_club,holdout,38,0.9123,0.8311,0.8365,0.86,,,,,,holdout: R4+R5
 2026-10-29T08:02:10,17bacd4,True,hybrid_club,holdout_noaccent,38,0.8509,0.7741,0.7711,0.7987,,,,,,holdout: R4+R5
+2026-10-29T08:39:10,c661f92,True,hybrid_rerank_all,dev,84,0.9067,0.8998,0.8672,0.8913,,,,,,"R6: rerank mọi câu, top20, enriched"
+2026-10-29T08:39:27,c661f92,True,hybrid_rerank_all,dev_noaccent,84,0.8224,0.7429,0.7322,0.7658,,,,,,"R6: rerank mọi câu, top20, enriched"
+2026-10-29T08:40:21,c661f92,True,hybrid_rerank,dev,84,0.9187,0.9157,0.8801,0.9048,,,,,,"R6 chốt: rerank chỉ câu có dấu, top20, enriched"
+2026-10-29T08:40:21,c661f92,True,hybrid_rerank,dev_noaccent,84,0.8502,0.8433,0.7942,0.8292,,,,,,"R6 chốt: rerank chỉ câu có dấu, top20, enriched"
+2026-10-29T08:41:09,c661f92,True,hybrid_rerank_all,holdout,38,0.9342,0.8496,0.8531,0.879,,,,,,holdout: R6 rerank mọi câu
+2026-10-29T08:41:18,c661f92,True,hybrid_rerank_all,holdout_noaccent,38,0.8026,0.7268,0.7172,0.7489,,,,,,holdout: R6 rerank mọi câu
+2026-10-29T08:42:04,c661f92,True,hybrid_rerank,holdout,38,0.9079,0.8816,0.8727,0.8874,,,,,,holdout: R6 chốt
+2026-10-29T08:42:04,c661f92,True,hybrid_rerank,holdout_noaccent,38,0.8509,0.7741,0.7711,0.7987,,,,,,holdout: R6 chốt

@@ -20,12 +20,14 @@ from statistics import mean
 
 from neorag.data import DATA_DIR, load_corpus, read_jsonl, write_jsonl
 from neorag.metrics.retrieval import score_query
+from s2b_rag.aliases import enrich
 from s2b_rag.eval import explog
 from s2b_rag.eval.split import OUT_DIR as SPLITS_DIR
 from s2b_rag.retrieval.bm25 import BM25Retriever
 from s2b_rag.retrieval.club_boost import ClubBoostRetriever, EnrichedRetriever
 from s2b_rag.retrieval.dense import gateway_dense
 from s2b_rag.retrieval.fusion import HybridRetriever
+from s2b_rag.retrieval.rerank import CrossEncoderReranker
 from s2b_rag.textnorm import analyze, expand_query
 
 K_VALUES = [3, 5, 7]
@@ -63,6 +65,18 @@ def hybrid_club() -> ClubBoostRetriever:
     return ClubBoostRetriever(hybrid(enrich=True), weight=0.1)
 
 
+def hybrid_rerank(top_n: int = 20, only_with_diacritics: bool = True) -> CrossEncoderReranker:
+    """R6 chốt: hybrid_club + cross-encoder bge-reranker-v2-m3 trên top-20, chỉ cho câu có dấu.
+    Đầu vào reranker: câu hỏi đã mở rộng viết tắt × đoạn đã làm giàu (tiền tố CLB + chủ đề)."""
+    return CrossEncoderReranker(
+        hybrid_club(),
+        top_n=top_n,
+        query_fn=expand_query,
+        doc_text=lambda d: enrich(d.club, d.topic, d.text),
+        only_with_diacritics=only_with_diacritics,
+    )
+
+
 # Tên retriever -> hàm tạo. Mỗi kỹ thuật mới thêm một dòng ở đây.
 RETRIEVERS: dict[str, Callable] = {
     "dense": gateway_dense,  # baseline BTC
@@ -72,7 +86,9 @@ RETRIEVERS: dict[str, Callable] = {
     "hybrid_equal": hybrid_equal,  # R3 đều 3 kênh
     "hybrid": hybrid,  # R3 chốt
     "hybrid_enrich": lambda: hybrid(enrich=True),  # + R4
-    "hybrid_club": hybrid_club,  # + R4 + R5 (chốt hiện tại)
+    "hybrid_club": hybrid_club,  # + R4 + R5
+    "hybrid_rerank_all": lambda: hybrid_rerank(only_with_diacritics=False),  # R6 rerank mọi câu
+    "hybrid_rerank": hybrid_rerank,  # + R6 chỉ câu có dấu (chốt hiện tại)
 }
 
 
