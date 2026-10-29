@@ -1,6 +1,6 @@
 # ADR-0004: Reranker cross-encoder chạy local, chỉ áp dụng cho câu hỏi có dấu
 
-- **Ngày:** 2026-10-30
+- **Ngày:** 2026-10-29
 - **Trạng thái:** Chấp nhận
 
 ## Bối cảnh

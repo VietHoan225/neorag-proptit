@@ -31,3 +31,5 @@ time,commit,dirty,system,split,n,recall@5,mrr@5,ndcg@5,retrieval,string_presence
 2026-10-29T08:41:18,c661f92,True,hybrid_rerank_all,holdout_noaccent,38,0.8026,0.7268,0.7172,0.7489,,,,,,holdout: R6 rerank mọi câu
 2026-10-29T08:42:04,c661f92,True,hybrid_rerank,holdout,38,0.9079,0.8816,0.8727,0.8874,,,,,,holdout: R6 chốt
 2026-10-29T08:42:04,c661f92,True,hybrid_rerank,holdout_noaccent,38,0.8509,0.7741,0.7711,0.7987,,,,,,holdout: R6 chốt
+2026-10-29T10:11:20,580ccf0,True,"S2BPipeline G1-G2 (hybrid_rerank, n_context=5)",dev,84,0.9187,0.9157,0.8801,0.9048,0.8686,0.6183,,,0.035,"G1 prompt + G2 postprocess, no judge; cost estimated (12 smoke + 74 dev calls)"
+2026-10-29T10:11:20,580ccf0,True,baseline BTC,dev,84,,,,0.708,0.717,0.419,,,,"answers from outputs/train_pred.jsonl filtered to dev, no judge"

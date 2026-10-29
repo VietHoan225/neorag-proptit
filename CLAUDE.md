@@ -58,4 +58,4 @@ Response Relevancy, 1 − Noise Sensitivity, Abstention). Groundedness tính tr�
 ## Trạng thái hiện tại
 - Baseline BTC: train retrieval 0.72, SP 0.74, ROUGE-L 0.43; public 52.40 (ngưỡng 53.40).
 - **Tiến độ và bản đồ file: trong `docs/plan.md`** (mục "Tiến độ", "Bản đồ file của mình"). Đọc hai mục đó đầu mỗi phiên.
-- Đang làm: xong retrieval (`hybrid_rerank`, public-like 0.867) → mở PR `feature/retrieval`; tiếp theo G1–G2 (pipeline + prompt) trên `feature/generation`.
+- Đang làm: G3 (luật trả lời: không nhắc [id], bỏ ý bên lề, câu thời gian/thiếu dữ liệu) trên `feature/generation`. Dev G1–G2: SP 0.869, ROUGE-L 0.618.
