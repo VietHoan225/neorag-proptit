@@ -41,3 +41,13 @@ def test_pipeline_end_to_end_with_fake_llm_and_bm25(corpus):
     prompt = llm.calls[0][1]["content"]
     assert re.findall(r"^\[(\d+)\]", prompt, re.MULTILINE) == ["2", "1"]  # đúng 2 đoạn, theo hạng
     assert "temperature" not in str(llm.calls)
+
+
+def test_prepare_finds_reranker_in_nested_layers(monkeypatch):
+    import s2b_rag.retrieval.rerank as rerank
+
+    loaded = []
+    monkeypatch.setattr(rerank, "load_cross_encoder", lambda name=None: loaded.append(name))
+    S2BPipeline(retriever="hybrid_r7", llm=FakeLLM()).prepare()  # reranker nằm sâu bên trong
+    S2BPipeline(retriever="bm25_noaccent_bi", llm=FakeLLM()).prepare()  # không có reranker
+    assert loaded == ["BAAI/bge-reranker-v2-m3"]
