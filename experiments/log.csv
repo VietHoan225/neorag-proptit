@@ -31,3 +31,9 @@ time,commit,dirty,system,split,n,recall@5,mrr@5,ndcg@5,retrieval,string_presence
 2026-10-29T08:41:18,c661f92,True,hybrid_rerank_all,holdout_noaccent,38,0.8026,0.7268,0.7172,0.7489,,,,,,holdout: R6 rerank mọi câu
 2026-10-29T08:42:04,c661f92,True,hybrid_rerank,holdout,38,0.9079,0.8816,0.8727,0.8874,,,,,,holdout: R6 chốt
 2026-10-29T08:42:04,c661f92,True,hybrid_rerank,holdout_noaccent,38,0.8509,0.7741,0.7711,0.7987,,,,,,holdout: R6 chốt
+2026-10-29T10:11:20,580ccf0,True,"S2BPipeline G1-G2 (hybrid_rerank, n_context=5)",dev,84,0.9187,0.9157,0.8801,0.9048,0.8686,0.6183,,,0.04,"G1 prompt + G2 postprocess, no judge; usage page 4.95 -> 4.93 right after run (likely lagging); overall 4.95 -> 4.85 for 270 calls = ~0.0004 USD/call"
+2026-10-29T10:11:20,580ccf0,True,baseline BTC,dev,84,,,,0.708,0.717,0.419,,,,"answers from outputs/train_pred.jsonl filtered to dev, no judge"
+2026-10-29T10:25:21,5f39390,True,S2BPipeline G3 (ctx5),dev,84,0.9187,0.9157,0.8801,0.9048,0.8707,0.6353,,,0.035,"G3 prompt rules: verbatim phrases, no [id], scope year, 3 insufficient-info cases; no judge"
+2026-10-29T10:25:21,5f39390,True,S2BPipelineCtx8 G3 (ctx8),dev,84,0.9187,0.9157,0.8801,0.9048,0.8953,0.6253,,,0.045,G3 prompt + 8 docs in prompt; no judge
+2026-10-29T10:35:39,5f39390,True,S2BPipeline G3 ctx5,holdout,38,0.9079,0.8816,0.8727,0.8874,0.8964,0.5932,0.8331,0.8603,0.04,"FULL JUDGE: groundedness 0.9640, relevancy 0.6443, noise 0.0991, abstention 1.00; cost: 4.85 -> 4.77 = 0.08 for both configs (80 predict + ~230 judge calls)"
+2026-10-29T10:35:39,5f39390,True,S2BPipeline G3 ctx8 (chốt),holdout,38,0.9079,0.8816,0.8727,0.8874,0.9054,0.6369,0.8431,0.8652,0.04,"FULL JUDGE: groundedness 0.9640, relevancy 0.6514, noise 0.0991, abstention 1.00; cost: 4.85 -> 4.77 = 0.08 for both configs (80 predict + ~230 judge calls)"

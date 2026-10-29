@@ -14,82 +14,24 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
-from collections.abc import Callable
 from pathlib import Path
 from statistics import mean
 
 from neorag.data import DATA_DIR, load_corpus, read_jsonl, write_jsonl
 from neorag.metrics.retrieval import score_query
-from s2b_rag.aliases import enrich
 from s2b_rag.eval import explog
 from s2b_rag.eval.split import OUT_DIR as SPLITS_DIR
-from s2b_rag.retrieval.bm25 import BM25Retriever
-from s2b_rag.retrieval.club_boost import ClubBoostRetriever, EnrichedRetriever
-from s2b_rag.retrieval.dense import gateway_dense
-from s2b_rag.retrieval.fusion import HybridRetriever
-from s2b_rag.retrieval.rerank import CrossEncoderReranker
-from s2b_rag.textnorm import analyze, expand_query
+from s2b_rag.retrieval.presets import (  # noqa: F401  (bm25, hybrid_club... dùng lại trong script thử)
+    RETRIEVERS,
+    bm25,
+    hybrid,
+    hybrid_club,
+    hybrid_rerank,
+)
 
 K_VALUES = [3, 5, 7]
 RANK_METRICS = ["recall@5", "mrr@5", "ndcg@5"]  # 3 metric vào điểm Benchmark (configs/eval.toml)
 N_RETRIEVED = 10  # số id được nộp tối đa
-
-
-def bm25(accents: bool, n_max: int = 1, expand: bool = True) -> BM25Retriever:
-    """Một kênh BM25: có dấu hoặc bỏ dấu, n-gram tới n_max, có/không mở rộng viết tắt (R1)."""
-    return BM25Retriever(
-        lambda text: analyze(text, accents, n_max), expand_query if expand else str
-    )
-
-
-def hybrid_equal() -> HybridRetriever:
-    """R3 ban đầu: RRF đều 3 kênh dense + BM25 có dấu + BM25 bỏ dấu (giữ để so sánh)."""
-    return HybridRetriever(
-        [gateway_dense(), bm25(accents=True, n_max=2), bm25(accents=False, n_max=2)]
-    )
-
-
-def hybrid(enrich: bool = False) -> HybridRetriever:
-    """R3 chốt: dense + BM25 bỏ dấu (cụm 2 âm tiết); câu không dấu thì trọng số dense 0.2.
-    0.2 nằm giữa vùng ổn định 0.1-0.3 khi dò trên dev (ADR-0003).
-    enrich=True (R4): cả hai kênh index văn bản có tiền tố CLB + alias + chủ đề."""
-    channels = [gateway_dense(), bm25(accents=False, n_max=2)]
-    if enrich:
-        channels = [EnrichedRetriever(c) for c in channels]
-    return HybridRetriever(channels, weights=[1.0, 1.0], noaccent_weights=[0.2, 1.0])
-
-
-def hybrid_club() -> ClubBoostRetriever:
-    """R4 + R5 chốt: hybrid làm giàu index + boost nhẹ đoạn của CLB được nhắc (0.1) + quota top-5.
-    Dò boost {0, 0.1, 0.25, 0.5, 1}: 0-0.25 tương đương, >=0.5 kém hơn -> chọn 0.1."""
-    return ClubBoostRetriever(hybrid(enrich=True), weight=0.1)
-
-
-def hybrid_rerank(top_n: int = 20, only_with_diacritics: bool = True) -> CrossEncoderReranker:
-    """R6 chốt: hybrid_club + cross-encoder bge-reranker-v2-m3 trên top-20, chỉ cho câu có dấu.
-    Đầu vào reranker: câu hỏi đã mở rộng viết tắt × đoạn đã làm giàu (tiền tố CLB + chủ đề)."""
-    return CrossEncoderReranker(
-        hybrid_club(),
-        top_n=top_n,
-        query_fn=expand_query,
-        doc_text=lambda d: enrich(d.club, d.topic, d.text),
-        only_with_diacritics=only_with_diacritics,
-    )
-
-
-# Tên retriever -> hàm tạo. Mỗi kỹ thuật mới thêm một dòng ở đây.
-RETRIEVERS: dict[str, Callable] = {
-    "dense": gateway_dense,  # baseline BTC
-    "bm25": lambda: bm25(accents=True),  # BM25 có dấu + R1
-    "bm25_noaccent": lambda: bm25(accents=False),  # R2 kênh bỏ dấu
-    "bm25_noaccent_bi": lambda: bm25(accents=False, n_max=2),  # + cụm 2 âm tiết
-    "hybrid_equal": hybrid_equal,  # R3 đều 3 kênh
-    "hybrid": hybrid,  # R3 chốt
-    "hybrid_enrich": lambda: hybrid(enrich=True),  # + R4
-    "hybrid_club": hybrid_club,  # + R4 + R5
-    "hybrid_rerank_all": lambda: hybrid_rerank(only_with_diacritics=False),  # R6 rerank mọi câu
-    "hybrid_rerank": hybrid_rerank,  # + R6 chỉ câu có dấu (chốt hiện tại)
-}
 
 
 def resolve_split(name: str) -> Path:
