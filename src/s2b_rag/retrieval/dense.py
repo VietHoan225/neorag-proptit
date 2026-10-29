@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 
 from neorag.data import Document
@@ -15,21 +17,22 @@ EMBEDDING_MODEL = "bge-m3"
 
 
 class DenseRetriever:
-    def __init__(self, embedder):
+    def __init__(self, embedder, query_fn: Callable[[str], str] = str):
         self.embedder = embedder  # có .embed(texts) -> ma trận đã chuẩn hóa L2
+        self.query_fn = query_fn  # chuẩn hoá câu hỏi trước khi embed (mặc định giữ nguyên)
 
     def index(self, corpus: list[Document]) -> None:
         self.ids = [d.id for d in corpus]
         self.vectors = self.embedder.embed([d.text for d in corpus])
 
     def search(self, query: str) -> list[tuple[int, float]]:
-        q = self.embedder.embed([query])[0]
+        q = self.embedder.embed([self.query_fn(query)])[0]
         scores = self.vectors @ q  # vector đã chuẩn hóa nên tích vô hướng = cosine
         order = np.argsort(-scores, kind="stable")  # stable: hòa điểm thì giữ thứ tự corpus
         return [(self.ids[i], float(scores[i])) for i in order]
 
 
-def gateway_dense() -> DenseRetriever:
-    """Dense baseline của BTC: bge-m3 qua gateway, embed nguyên văn bản đoạn và câu hỏi."""
+def gateway_dense(query_fn: Callable[[str], str] = str) -> DenseRetriever:
+    """bge-m3 qua gateway. Mặc định = dense baseline của BTC (embed nguyên văn câu hỏi)."""
     llm = LLMClient(cache_path=CACHE_PATH)
-    return DenseRetriever(GatewayEmbedder(llm, EMBEDDING_MODEL))
+    return DenseRetriever(GatewayEmbedder(llm, EMBEDDING_MODEL), query_fn)

@@ -58,4 +58,4 @@ Response Relevancy, 1 − Noise Sensitivity, Abstention). Groundedness tính tr�
 ## Trạng thái hiện tại
 - Baseline BTC: train retrieval 0.72, SP 0.74, ROUGE-L 0.43; public 52.40 (ngưỡng 53.40).
 - **Tiến độ và bản đồ file: trong `docs/plan.md`** (mục "Tiến độ", "Bản đồ file của mình"). Đọc hai mục đó đầu mỗi phiên.
-- Đang làm: R1–R3 (chuẩn hoá query, BM25 hai kênh, RRF) trên nhánh `feature/retrieval`.
+- Đang làm: R6 reranker local (cần cài `python scripts/install.py --local`) trên nhánh `feature/retrieval`.

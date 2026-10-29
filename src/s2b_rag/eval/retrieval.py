@@ -22,15 +22,48 @@ from neorag.data import DATA_DIR, load_corpus, read_jsonl, write_jsonl
 from neorag.metrics.retrieval import score_query
 from s2b_rag.eval import explog
 from s2b_rag.eval.split import OUT_DIR as SPLITS_DIR
+from s2b_rag.retrieval.bm25 import BM25Retriever
 from s2b_rag.retrieval.dense import gateway_dense
+from s2b_rag.retrieval.fusion import HybridRetriever
+from s2b_rag.textnorm import analyze, expand_query
 
 K_VALUES = [3, 5, 7]
 RANK_METRICS = ["recall@5", "mrr@5", "ndcg@5"]  # 3 metric vào điểm Benchmark (configs/eval.toml)
 N_RETRIEVED = 10  # số id được nộp tối đa
 
-# Tên retriever -> hàm tạo. Mỗi kỹ thuật mới (BM25, hybrid, rerank...) thêm một dòng ở đây.
+
+def bm25(accents: bool, n_max: int = 1, expand: bool = True) -> BM25Retriever:
+    """Một kênh BM25: có dấu hoặc bỏ dấu, n-gram tới n_max, có/không mở rộng viết tắt (R1)."""
+    return BM25Retriever(
+        lambda text: analyze(text, accents, n_max), expand_query if expand else str
+    )
+
+
+def hybrid_equal() -> HybridRetriever:
+    """R3 ban đầu: RRF đều 3 kênh dense + BM25 có dấu + BM25 bỏ dấu (giữ để so sánh)."""
+    return HybridRetriever(
+        [gateway_dense(), bm25(accents=True, n_max=2), bm25(accents=False, n_max=2)]
+    )
+
+
+def hybrid() -> HybridRetriever:
+    """R3 chốt: dense + BM25 bỏ dấu (cụm 2 âm tiết); câu không dấu thì trọng số dense 0.2.
+    0.2 nằm giữa vùng ổn định 0.1-0.3 khi dò trên dev (xem docs/journal.md)."""
+    return HybridRetriever(
+        [gateway_dense(), bm25(accents=False, n_max=2)],
+        weights=[1.0, 1.0],
+        noaccent_weights=[0.2, 1.0],
+    )
+
+
+# Tên retriever -> hàm tạo. Mỗi kỹ thuật mới thêm một dòng ở đây.
 RETRIEVERS: dict[str, Callable] = {
-    "dense": gateway_dense,
+    "dense": gateway_dense,  # baseline BTC
+    "bm25": lambda: bm25(accents=True),  # BM25 có dấu + R1
+    "bm25_noaccent": lambda: bm25(accents=False),  # R2 kênh bỏ dấu
+    "bm25_noaccent_bi": lambda: bm25(accents=False, n_max=2),  # + cụm 2 âm tiết
+    "hybrid_equal": hybrid_equal,  # R3 đều 3 kênh
+    "hybrid": hybrid,  # R3 chốt
 }
 
 

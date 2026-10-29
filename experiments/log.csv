@@ -1,3 +1,17 @@
 time,commit,dirty,system,split,n,recall@5,mrr@5,ndcg@5,retrieval,string_presence,rouge_l,generation,score,cost_usd,note
 2026-10-28T18:20:09,dfdb152,True,dense,dev,84,0.755,0.6903,0.6791,0.7081,,,,,,"dense baseline (BTC), reproduces official train numbers"
 2026-10-28T18:20:18,dfdb152,True,dense,dev_noaccent,84,0.5208,0.4968,0.4762,0.498,,,,,,"dense baseline (BTC), reproduces official train numbers"
+2026-10-29T07:32:39,4942401,True,bm25,dev,84,0.6944,0.6355,0.6121,0.6473,,,,,,R1: BM25 có dấu + mở rộng viết tắt
+2026-10-29T07:32:40,4942401,True,bm25,dev_noaccent,84,0.5278,0.4762,0.4619,0.4886,,,,,,R1: BM25 có dấu + mở rộng viết tắt
+2026-10-29T07:32:44,4942401,True,bm25_noaccent,dev,84,0.7312,0.7204,0.6692,0.7069,,,,,,"R2: BM25 bỏ dấu, âm tiết đơn"
+2026-10-29T07:32:44,4942401,True,bm25_noaccent,dev_noaccent,84,0.7312,0.7204,0.6692,0.7069,,,,,,"R2: BM25 bỏ dấu, âm tiết đơn"
+2026-10-29T07:32:49,4942401,True,bm25_noaccent_bi,dev,84,0.7788,0.7345,0.6995,0.7376,,,,,,R2: BM25 bỏ dấu + cụm 2 âm tiết
+2026-10-29T07:32:49,4942401,True,bm25_noaccent_bi,dev_noaccent,84,0.7788,0.7345,0.6995,0.7376,,,,,,R2: BM25 bỏ dấu + cụm 2 âm tiết
+2026-10-29T07:32:56,4942401,True,hybrid_equal,dev,84,0.7966,0.7718,0.7288,0.7657,,,,,,R3: RRF đều dense + BM25 có dấu + BM25 bỏ dấu
+2026-10-29T07:32:57,4942401,True,hybrid_equal,dev_noaccent,84,0.6885,0.6647,0.6307,0.6613,,,,,,R3: RRF đều dense + BM25 có dấu + BM25 bỏ dấu
+2026-10-29T07:33:03,4942401,True,hybrid,dev,84,0.8819,0.8347,0.7924,0.8363,,,,,,"R3 chốt: dense + BM25 bỏ dấu bi, dense 0.2 khi không dấu"
+2026-10-29T07:33:04,4942401,True,hybrid,dev_noaccent,84,0.8363,0.7563,0.7244,0.7724,,,,,,"R3 chốt: dense + BM25 bỏ dấu bi, dense 0.2 khi không dấu"
+2026-10-29T07:33:10,4942401,True,dense,holdout,38,0.8421,0.6974,0.7174,0.7523,,,,,,holdout: dense baseline
+2026-10-29T07:33:22,4942401,True,dense,holdout_noaccent,38,0.4868,0.4408,0.4072,0.445,,,,,,holdout: dense baseline
+2026-10-29T07:33:28,4942401,True,hybrid,holdout,38,0.8728,0.7895,0.7899,0.8174,,,,,,holdout: R3 chốt
+2026-10-29T07:33:28,4942401,True,hybrid,holdout_noaccent,38,0.8333,0.7509,0.7474,0.7772,,,,,,holdout: R3 chốt
