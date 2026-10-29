@@ -40,3 +40,12 @@ time,commit,dirty,system,split,n,recall@5,mrr@5,ndcg@5,retrieval,string_presence
 2026-10-29T10:58:39,d27d103,False,S2BPipeline (d27d103),public_test,42,0.7619,0.7806,0.7171,0.7532,0.7863,0.5185,0.7573,0.7553,0.02,"PUBLIC #1 on aichallenge: raw 75.53, ranked 86.08, rank 2 (top 79.11); holdout same config 86.52; groundedness 0.9231, relevancy 0.5703, 1-noise 0.7457, abstention 1.0 (row re-added: original uncommitted edit was lost)"
 2026-10-29T11:11:01,3d9e03a,True,hybrid_rerank_r8rule,dev,84,0.9058,0.8958,0.8613,0.8876,,,,,,"R8 tách ý theo luật (dấu câu), câu con w=0.5: GIẢM → không dùng"
 2026-10-29T11:11:02,3d9e03a,True,hybrid_rerank_r8rule,dev_noaccent,84,0.8413,0.8304,0.7802,0.8173,,,,,,"R8 tách ý theo luật (dấu câu), câu con w=0.5: GIẢM → không dùng"
+2026-10-29T11:20:08,ee45876,True,hybrid_rewrite,dev,84,0.9048,0.9147,0.8802,0.8999,,,,,0.03,R7: haiku khôi phục dấu (câu không dấu hoặc nhiều ý); cost of all R7 rewrite calls (109 unique queries): 4.75 -> 4.72 = 0.03 USD (~0.00028/call)
+2026-10-29T11:23:10,ee45876,True,hybrid_rewrite,dev_noaccent,84,0.8978,0.9127,0.8718,0.8941,,,,,,R7: haiku khôi phục dấu (câu không dấu hoặc nhiều ý)
+2026-10-29T11:24:13,ee45876,True,hybrid_rewrite_sub,dev,84,0.9087,0.9127,0.8844,0.9019,,,,,,"R7: + câu con tự đủ nghĩa, w=0.5"
+2026-10-29T11:24:50,ee45876,True,hybrid_rewrite_sub,dev_noaccent,84,0.8919,0.9048,0.8693,0.8887,,,,,,"R7: + câu con tự đủ nghĩa, w=0.5"
+2026-10-29T11:29:27,ee45876,True,hybrid_r7,dev,84,0.9405,0.9415,0.9077,0.9299,,,,,,"R7 chốt: viết lại chỉ câu không dấu + RRF câu gốc w=0.5 (cache, 0 USD)"
+2026-10-29T11:29:44,ee45876,True,hybrid_r7,dev_noaccent,84,0.9038,0.9157,0.8733,0.8976,,,,,,"R7 chốt: viết lại chỉ câu không dấu + RRF câu gốc w=0.5 (cache, 0 USD)"
+2026-10-29T11:34:42,ee45876,True,hybrid_r7,holdout,38,0.9342,0.9013,0.8956,0.9104,,,,,,holdout: R7 chốt (viết lại câu không dấu + câu gốc w=0.5)
+2026-10-29T11:36:08,ee45876,True,hybrid_r7,holdout_noaccent,38,0.9298,0.8627,0.8694,0.8873,,,,,,holdout: R7 chốt (viết lại câu không dấu + câu gốc w=0.5)
+2026-10-29T11:39:02,ee45876,True,S2BPipeline hybrid_r7 (R7 + G3 ctx8),holdout,38,0.9342,0.9013,0.8956,0.9104,0.9189,0.6352,0.8513,0.8808,,"FULL JUDGE: groundedness 0.9820, relevancy 0.6526, noise 0.0811, abstention 1.00; prev 86.52"

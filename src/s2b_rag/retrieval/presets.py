@@ -8,16 +8,19 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from neorag.llm import LLMClient
 from s2b_rag.aliases import enrich
+from s2b_rag.query import LLMQueryRewriter
 from s2b_rag.retrieval.bm25 import BM25Retriever
 from s2b_rag.retrieval.club_boost import ClubBoostRetriever, EnrichedRetriever
-from s2b_rag.retrieval.dense import gateway_dense
+from s2b_rag.retrieval.dense import CACHE_PATH, gateway_dense
 from s2b_rag.retrieval.fusion import HybridRetriever
 from s2b_rag.retrieval.multiquery import MultiQueryRetriever
 from s2b_rag.retrieval.rerank import CrossEncoderReranker
-from s2b_rag.textnorm import analyze, expand_query
+from s2b_rag.retrieval.rewrite import RewriteRetriever
+from s2b_rag.textnorm import analyze, expand_query, has_diacritics
 
-DEFAULT = "hybrid_rerank"  # cấu hình đang dùng cho bài nộp
+DEFAULT = "hybrid_r7"  # cấu hình đang dùng cho bài nộp (trước 29/10 chiều: hybrid_rerank)
 
 
 def bm25(accents: bool, n_max: int = 1, expand: bool = True) -> BM25Retriever:
@@ -62,6 +65,25 @@ def hybrid_rerank(top_n: int = 20, only_with_diacritics: bool = True) -> CrossEn
     )
 
 
+def hybrid_rewrite(use_subqueries: bool = False, sub_weight: float = 0.5) -> RewriteRetriever:
+    """R7: hybrid_rerank trên câu hỏi do claude-haiku-5-5 viết lại (chỉ câu không dấu hoặc nhiều ý)."""
+    rewriter = LLMQueryRewriter(LLMClient(cache_path=CACHE_PATH))
+    return RewriteRetriever(hybrid_rerank(), rewriter, use_subqueries, sub_weight)
+
+
+def hybrid_r7(original_weight: float = 0.5) -> RewriteRetriever:
+    """R7 chốt: chỉ câu KHÔNG DẤU được haiku viết lại thành câu có dấu (câu có dấu viết lại thì giảm nhẹ);
+    gộp RRF câu viết lại (w=1) + câu gốc (w=0.5, giữa vùng ổn định 0.25-1.0) để phòng LLM làm mất ý;
+    không dùng câu con (không giúp thêm). Dev: public-like 0.867 -> 0.914."""
+    rewriter = LLMQueryRewriter(LLMClient(cache_path=CACHE_PATH))
+    return RewriteRetriever(
+        hybrid_rerank(),
+        rewriter,
+        should_rewrite=lambda q: not has_diacritics(q),
+        original_weight=original_weight,
+    )
+
+
 # Tên retriever -> hàm tạo. Mỗi kỹ thuật mới thêm một dòng ở đây.
 RETRIEVERS: dict[str, Callable] = {
     "dense": gateway_dense,  # baseline BTC
@@ -76,4 +98,7 @@ RETRIEVERS: dict[str, Callable] = {
     "hybrid_rerank": hybrid_rerank,  # + R6 chỉ câu có dấu (chốt hiện tại)
     # R8 tách ý theo luật: làm GIẢM điểm (câu con mất nghĩa do "đó", "vậy"...) → không dùng, giữ để tái lập
     "hybrid_rerank_r8rule": lambda: MultiQueryRetriever(hybrid_rerank(), sub_weight=0.5),
+    "hybrid_rewrite": hybrid_rewrite,  # R7 chỉ khôi phục dấu (GỌI HAIKU)
+    "hybrid_rewrite_sub": lambda: hybrid_rewrite(use_subqueries=True),  # R7 + câu con (GỌI HAIKU)
+    "hybrid_r7": hybrid_r7,  # R7 chốt: chỉ câu không dấu, + câu gốc w=0.5 (GỌI HAIKU)
 }
