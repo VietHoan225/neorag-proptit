@@ -23,6 +23,7 @@ from neorag.metrics.retrieval import score_query
 from s2b_rag.eval import explog
 from s2b_rag.eval.split import OUT_DIR as SPLITS_DIR
 from s2b_rag.retrieval.bm25 import BM25Retriever
+from s2b_rag.retrieval.club_boost import ClubBoostRetriever, EnrichedRetriever
 from s2b_rag.retrieval.dense import gateway_dense
 from s2b_rag.retrieval.fusion import HybridRetriever
 from s2b_rag.textnorm import analyze, expand_query
@@ -46,14 +47,20 @@ def hybrid_equal() -> HybridRetriever:
     )
 
 
-def hybrid() -> HybridRetriever:
+def hybrid(enrich: bool = False) -> HybridRetriever:
     """R3 chốt: dense + BM25 bỏ dấu (cụm 2 âm tiết); câu không dấu thì trọng số dense 0.2.
-    0.2 nằm giữa vùng ổn định 0.1-0.3 khi dò trên dev (xem docs/journal.md)."""
-    return HybridRetriever(
-        [gateway_dense(), bm25(accents=False, n_max=2)],
-        weights=[1.0, 1.0],
-        noaccent_weights=[0.2, 1.0],
-    )
+    0.2 nằm giữa vùng ổn định 0.1-0.3 khi dò trên dev (ADR-0003).
+    enrich=True (R4): cả hai kênh index văn bản có tiền tố CLB + alias + chủ đề."""
+    channels = [gateway_dense(), bm25(accents=False, n_max=2)]
+    if enrich:
+        channels = [EnrichedRetriever(c) for c in channels]
+    return HybridRetriever(channels, weights=[1.0, 1.0], noaccent_weights=[0.2, 1.0])
+
+
+def hybrid_club() -> ClubBoostRetriever:
+    """R4 + R5 chốt: hybrid làm giàu index + boost nhẹ đoạn của CLB được nhắc (0.1) + quota top-5.
+    Dò boost {0, 0.1, 0.25, 0.5, 1}: 0-0.25 tương đương, >=0.5 kém hơn -> chọn 0.1."""
+    return ClubBoostRetriever(hybrid(enrich=True), weight=0.1)
 
 
 # Tên retriever -> hàm tạo. Mỗi kỹ thuật mới thêm một dòng ở đây.
@@ -64,6 +71,8 @@ RETRIEVERS: dict[str, Callable] = {
     "bm25_noaccent_bi": lambda: bm25(accents=False, n_max=2),  # + cụm 2 âm tiết
     "hybrid_equal": hybrid_equal,  # R3 đều 3 kênh
     "hybrid": hybrid,  # R3 chốt
+    "hybrid_enrich": lambda: hybrid(enrich=True),  # + R4
+    "hybrid_club": hybrid_club,  # + R4 + R5 (chốt hiện tại)
 }
 
 

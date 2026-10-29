@@ -15,3 +15,11 @@ time,commit,dirty,system,split,n,recall@5,mrr@5,ndcg@5,retrieval,string_presence
 2026-10-29T07:33:22,4942401,True,dense,holdout_noaccent,38,0.4868,0.4408,0.4072,0.445,,,,,,holdout: dense baseline
 2026-10-29T07:33:28,4942401,True,hybrid,holdout,38,0.8728,0.7895,0.7899,0.8174,,,,,,holdout: R3 chốt
 2026-10-29T07:33:28,4942401,True,hybrid,holdout_noaccent,38,0.8333,0.7509,0.7474,0.7772,,,,,,holdout: R3 chốt
+2026-10-29T08:01:47,17bacd4,True,hybrid_enrich,dev,84,0.9038,0.8506,0.8205,0.8583,,,,,,R4: làm giàu index cả dense và BM25 (CLB + alias + chủ đề)
+2026-10-29T08:01:47,17bacd4,True,hybrid_enrich,dev_noaccent,84,0.8581,0.8302,0.7803,0.8229,,,,,,R4: làm giàu index cả dense và BM25 (CLB + alias + chủ đề)
+2026-10-29T08:01:54,17bacd4,True,hybrid_club,dev,84,0.9157,0.8506,0.8337,0.8667,,,,,,R4+R5: + boost CLB 0.1 + quota top-5
+2026-10-29T08:01:54,17bacd4,True,hybrid_club,dev_noaccent,84,0.8502,0.8433,0.7942,0.8292,,,,,,R4+R5: + boost CLB 0.1 + quota top-5
+2026-10-29T08:02:02,17bacd4,True,hybrid_enrich,holdout,38,0.8991,0.8276,0.8254,0.8507,,,,,,holdout: R4
+2026-10-29T08:02:02,17bacd4,True,hybrid_enrich,holdout_noaccent,38,0.8202,0.7719,0.7577,0.7833,,,,,,holdout: R4
+2026-10-29T08:02:09,17bacd4,True,hybrid_club,holdout,38,0.9123,0.8311,0.8365,0.86,,,,,,holdout: R4+R5
+2026-10-29T08:02:10,17bacd4,True,hybrid_club,holdout_noaccent,38,0.8509,0.7741,0.7711,0.7987,,,,,,holdout: R4+R5
