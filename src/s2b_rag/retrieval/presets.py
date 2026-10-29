@@ -13,6 +13,7 @@ from s2b_rag.retrieval.bm25 import BM25Retriever
 from s2b_rag.retrieval.club_boost import ClubBoostRetriever, EnrichedRetriever
 from s2b_rag.retrieval.dense import gateway_dense
 from s2b_rag.retrieval.fusion import HybridRetriever
+from s2b_rag.retrieval.multiquery import MultiQueryRetriever
 from s2b_rag.retrieval.rerank import CrossEncoderReranker
 from s2b_rag.textnorm import analyze, expand_query
 
@@ -73,4 +74,6 @@ RETRIEVERS: dict[str, Callable] = {
     "hybrid_club": hybrid_club,  # + R4 + R5
     "hybrid_rerank_all": lambda: hybrid_rerank(only_with_diacritics=False),  # R6 rerank mọi câu
     "hybrid_rerank": hybrid_rerank,  # + R6 chỉ câu có dấu (chốt hiện tại)
+    # R8 tách ý theo luật: làm GIẢM điểm (câu con mất nghĩa do "đó", "vậy"...) → không dùng, giữ để tái lập
+    "hybrid_rerank_r8rule": lambda: MultiQueryRetriever(hybrid_rerank(), sub_weight=0.5),
 }

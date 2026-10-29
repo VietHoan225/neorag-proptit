@@ -52,4 +52,3 @@ class S2BPipeline(RAGPipeline):
         context = [self.docs[i] for i in retrieved_ids[: self.n_context]]
         answer = self.llm.chat(build_messages(query, context), model=self.llm_model)
         return RAGOutput(answer=postprocess(answer), retrieved_ids=retrieved_ids)
-
