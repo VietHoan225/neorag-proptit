@@ -1,4 +1,7 @@
-"""Sinh câu trả lời: dựng prompt từ các đoạn đã truy xuất (G1, G3) và làm sạch câu trả lời (G2).
+"""Sinh câu trả lời: dựng prompt từ các đoạn đã truy xuất (G1, G3, G5) và làm sạch câu trả lời (G2).
+
+G5 (thêm 30/10): phân tích nhãn Noise của judge trên dev cho thấy phần lớn câu bị chấm sai là câu đúng theo tài
+liệu nhưng thừa: thông tin của CLB/nhiệm kỳ khác, rào đón "tài liệu không ghi rõ", tự so sánh (docs/journal.md).
 
 Prompt được viết theo đặc điểm của đáp án chuẩn (train, ~210 ký tự, 1–3 câu, đi thẳng vào ý, chép nguyên
 văn số/ngày/tên) — không nhắm vào judge: không có nhãn chấm điểm, không chỉ dẫn cho người chấm.
@@ -25,12 +28,14 @@ Chỉ dùng thông tin trong các TÀI LIỆU được cung cấp. Cách trả l
 - Giữ mốc thời gian mà tài liệu nêu (nhiệm kỳ, đợt tuyển, năm, ngày đăng) thay vì nói như quy định cố định. \
 Nếu câu hỏi hỏi về năm, đợt hoặc nhiệm kỳ khác với tài liệu, nêu thông tin tài liệu có và nói rõ thông tin đó \
 chỉ áp dụng cho năm, đợt hoặc nhiệm kỳ nào.
-- Chỉ nêu thông tin phục vụ câu hỏi; không thêm chi tiết bên lề, không nói về CLB hay chủ đề không được hỏi.
+- Chỉ nêu thông tin phục vụ câu hỏi; không thêm chi tiết bên lề, không nói về CLB, nhiệm kỳ hay chủ đề không \
+được hỏi, không tự so sánh hay kết luận điều tài liệu không nêu.
 
 Khi tài liệu không trả lời được đầy đủ:
-- Thiếu một phần: nêu phần tài liệu có, và nói rõ "Tài liệu không ghi ..." cho phần còn thiếu.
+- Thiếu một phần: nêu phần tài liệu có, và nói rõ "Tài liệu không ghi ..." cho phần còn thiếu. Tài liệu đã trả \
+lời được thì không rào đón.
 - Không có thông tin: viết "Tài liệu hiện có không có thông tin về ..." (nêu đúng điều được hỏi); có thể thêm \
-một câu về thông tin liên quan gần nhất mà tài liệu có. Không đoán.
+một câu về thông tin liên quan gần nhất của chính CLB, nhiệm kỳ hoặc đợt được hỏi. Không đoán.
 - Các tài liệu ghi khác nhau: viết "Các nguồn ghi khác nhau:" rồi nêu từng cách ghi kèm nguồn hoặc ngày của nó."""
 
 USER_TEMPLATE = """TÀI LIỆU:
