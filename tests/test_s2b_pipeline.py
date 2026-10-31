@@ -51,3 +51,48 @@ def test_prepare_finds_reranker_in_nested_layers(monkeypatch):
     S2BPipeline(retriever="hybrid_r7", llm=FakeLLM()).prepare()  # reranker nằm sâu bên trong
     S2BPipeline(retriever="bm25_noaccent_bi", llm=FakeLLM()).prepare()  # không có reranker
     assert loaded == ["BAAI/bge-reranker-v2-m3"]
+
+
+class FakeStreamClient:
+    """Client giả kiểu openai: `chat.completions.create(..., stream=True)` nhả từng mẩu chữ."""
+
+    def __init__(self, pieces):
+        self.pieces, self.calls = pieces, []
+        self.chat = self.completions = self
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+
+        def chunk(text):
+            delta = type("Delta", (), {"content": text})()
+            return type("Chunk", (), {"choices": [type("Choice", (), {"delta": delta})()]})()
+
+        return [chunk(p) for p in self.pieces] + [type("Chunk", (), {"choices": []})()]
+
+
+def test_retrieve_returns_docs_context_and_no_rewrite(corpus):
+    pipeline = S2BPipeline(retriever="bm25_noaccent_bi", n_context=2, llm=FakeLLM())
+    pipeline.index(corpus)
+    r = pipeline.retrieve("clb multimedia thanh lap ngay nao")
+    assert r.ids[0] == 2 and len(r.ids) == 3
+    assert [d.id for d in r.context] == r.ids[:2]
+    assert r.rewritten is None and r.seconds >= 0
+
+
+def test_stream_answer_uses_same_prompt_as_run_and_joins_to_same_answer(corpus):
+    full = "**CLB Multimedia PTIT** thành lập\nngày 10/11/2012."
+    llm = FakeLLM(lambda messages: full)
+    client = FakeStreamClient(["**CLB Multimedia", " PTIT** thành lập\n", "ngày 10/11/2012."])
+    pipeline = S2BPipeline(retriever="bm25_noaccent_bi", n_context=2, llm=llm, stream_client=client)
+    pipeline.index(corpus)
+    query = "clb multimedia thanh lap ngay nao"
+
+    expected = pipeline.run(query).answer
+    r = pipeline.retrieve(query)
+    streamed = postprocess("".join(pipeline.stream_answer(query, r.context)))
+
+    assert streamed == expected
+    (call,) = client.calls
+    assert call["messages"] == llm.calls[0]  # cùng prompt với bài nộp
+    assert call["stream"] is True and call["model"] == "claude-haiku-5-5"
+    assert "temperature" not in call
