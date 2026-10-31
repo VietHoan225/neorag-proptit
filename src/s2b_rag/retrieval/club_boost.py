@@ -4,17 +4,28 @@
   trong thêm một "kênh" RRF ảo, nên cùng thang với điểm RRF.
 - Quota: câu nhắc ≥ 2 CLB (so sánh) thì mỗi CLB có ít nhất 1 đoạn trong top-5.
 - Không lọc cứng: câu về CLB này vẫn có thể cần đoạn của cộng đồng S2B hoặc CLB khác.
+- Đặt SAU reranker (weight=0, chỉ quota) nếu có rerank: reranker xếp lại cả top-20 nên xoá quota đặt trước nó.
 """
 
 from __future__ import annotations
+
+from collections.abc import Callable
 
 from neorag.data import Document
 from s2b_rag.aliases import detect_clubs, enrich
 
 
 class ClubBoostRetriever:
-    def __init__(self, base, weight: float = 0.5, k: int = 60, quota_top: int = 5):
+    def __init__(
+        self,
+        base,
+        weight: float = 0.5,
+        k: int = 60,
+        quota_top: int = 5,
+        detect: Callable[[str], list[str]] = detect_clubs,
+    ):
         self.base, self.weight, self.k, self.quota_top = base, weight, k, quota_top
+        self.detect = detect
 
     def index(self, corpus: list[Document]) -> None:
         self.base.index(corpus)
@@ -22,7 +33,7 @@ class ClubBoostRetriever:
 
     def search(self, query: str) -> list[tuple[int, float]]:
         results = self.base.search(query)
-        clubs = set(detect_clubs(query))
+        clubs = set(self.detect(query))
         if not clubs:
             return results
         bonus = self.weight / (self.k + 1)

@@ -74,3 +74,25 @@ def test_enriched_retriever_indexes_prefixed_text():
     EnrichedRetriever(base).index(CORPUS[:1])
     assert base.indexed[0].text.startswith("CLB Lập Trình PTIT (ProPTIT")
     assert base.indexed[0].id == 1
+
+
+def test_detect_clubs_multi_treats_three_clubs_phrase_as_all_clubs():
+    from s2b_rag.aliases import detect_clubs_multi
+
+    all_three = [PROPTIT, MULTIMEDIA, GCC]
+    assert detect_clubs_multi("Trong 3 CLB thuộc S2B, CLB nào lâu đời nhất?") == [S2B, *all_three]
+    assert detect_clubs_multi("gui mail hoi ca 3 clb trong s2b") == [S2B, *all_three]
+    assert detect_clubs_multi("trong ba câu lạc bộ thì chỗ nào hợp với em") == all_three
+    # không nói "ba CLB" thì giữ như detect_clubs; "13 clb" không phải "3 clb"
+    assert detect_clubs_multi("CLB nào trong S2B tuyển ít người nhất?") == [S2B]
+    assert detect_clubs_multi("có 13 clb tham gia") == []
+
+
+def test_quota_after_reranker_restores_slot_that_reranker_removed():
+    # tầng dưới (vd reranker) trả top-5 toàn ProPTIT dù câu hỏi so sánh ProPTIT với GCC
+    r = ClubBoostRetriever(
+        Fixed([1, 2, 3, 4, 5, 6, 7]), weight=0.0, detect=lambda q: [PROPTIT, GCC]
+    )
+    r.index(CORPUS)
+    ranked = [i for i, _ in r.search("bất kỳ")]
+    assert ranked[:5] == [1, 2, 3, 4, 6]  # weight=0: không đổi thứ tự nào khác ngoài suất quota

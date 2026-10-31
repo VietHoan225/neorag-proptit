@@ -10,6 +10,8 @@ So khớp trên câu hỏi đã mở rộng viết tắt (R1) và bỏ dấu, th
 
 from __future__ import annotations
 
+import re
+
 from s2b_rag.textnorm import expand_query, strip_accents
 
 # Tên `club` đúng như trong data/corpus.jsonl
@@ -48,6 +50,19 @@ def detect_clubs(query: str) -> list[str]:
         for club, aliases in CLUB_ALIASES.items()
         if any(f" {alias} " in text for alias in aliases)
     ]
+
+
+# "ba CLB", "cả 3 câu lạc bộ" = hỏi về cả ba CLB (câu train 0017, 0044, 0104 đều cần đoạn của cả ba). Không gộp
+# "CLB nào trong S2B": train cho thấy mơ hồ (0080 "vẽ + làm game thì vào CLB nào" chỉ cần GCC).
+_ALL_THREE = re.compile(r"\b(ba|3) (clb|cau lac bo)\b")
+
+
+def detect_clubs_multi(query: str) -> list[str]:
+    """detect_clubs + câu nói "ba CLB" thì coi như nhắc cả ba CLB (để quota R5 chia top-5 cho từng CLB)."""
+    clubs = detect_clubs(query)
+    if _ALL_THREE.search(strip_accents(expand_query(query))):
+        clubs = list(dict.fromkeys([*clubs, PROPTIT, MULTIMEDIA, GCC]))
+    return clubs
 
 
 def enrich(club: str, topic: str, text: str) -> str:
