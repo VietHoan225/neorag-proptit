@@ -58,4 +58,4 @@ Response Relevancy, 1 − Noise Sensitivity, Abstention). Groundedness tính tr�
 ## Trạng thái hiện tại
 - Baseline BTC: train retrieval 0.72, SP 0.74, ROUGE-L 0.43; public 52.40 (ngưỡng 53.40).
 - **Tiến độ và bản đồ file: trong `docs/plan.md`** (mục "Tiến độ", "Bản đồ file của mình"). Đọc hai mục đó đầu mỗi phiên.
-- Đang làm: chatbot (nhánh `feature/chatbot`): b1 stream OK, b2 `retrieve()`/`stream_answer()` xong. Tiếp theo: b3 giao diện Streamlit `app/s2b_chat.py`, b4 đo latency.
+- Đang làm: chatbot B (Starlette + HTML) xong B1–B3 trên nhánh `feature/chatbot`, chờ chạy thử + PR. Tiếp theo: chống sự cố (mục 8b trong plan).
