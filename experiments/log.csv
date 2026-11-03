@@ -66,3 +66,4 @@ time,commit,dirty,system,split,n,recall@5,mrr@5,ndcg@5,retrieval,string_presence
 2026-11-03T14:04:00,bd57daf,True,hybrid_r10,holdout,38,0.9518,0.9101,0.9071,0.923,,,,,,casual-eval: hybrid_r10 on casual splits
 2026-11-03T14:04:07,bd57daf,True,hybrid_r10,holdout_noaccent,38,0.9386,0.8706,0.8777,0.8956,,,,,,casual-eval: hybrid_r10 on casual splits
 2026-11-03T14:06:54,bd57daf,True,hybrid_r10,holdout_casual,38,0.9254,0.8355,0.8519,0.871,,,,,,casual-eval: hybrid_r10 on casual splits
+2026-11-03T14:37:32,542f84f,True,S2BPipeline r10+g5 ctx10,dev,86,,,,0.9323,0.9338,0.6658,,,0.04,"R9 buoc 1: n_context 8->10 (ctx8: SP 0.9145, ROUGE 0.6365); 3 cau gold hang 9-10: SP 0.667->1.0"

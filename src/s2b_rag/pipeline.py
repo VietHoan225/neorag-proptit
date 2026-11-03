@@ -23,7 +23,7 @@ class S2BPipeline(RAGPipeline):
     def __init__(
         self,
         retriever: str = DEFAULT,
-        n_context: int = 8,
+        n_context: int = 10,
         n_retrieved: int = 10,
         llm: LLMClient | None = None,
     ):
@@ -31,6 +31,7 @@ class S2BPipeline(RAGPipeline):
         self.retriever = RETRIEVERS[retriever]()
         # số đoạn đưa vào prompt. 8 thay vì 5: holdout có judge 86.03 -> 86.52 (SP, ROUGE-L, Relevancy tăng,
         # Noise không đổi); dev: ~7/16 câu thiếu key fact vì đoạn đúng ở hạng 6-10. Xem docs/journal.md.
+        # R9 bước 1 (thử 03/11): 10 = toàn bộ id nộp, để haiku thấy cả đoạn hạng 9-10 của câu nhiều ý.
         self.n_context = n_context
         self.n_retrieved = n_retrieved  # số id nộp; luôn ⊇ các đoạn trong prompt (Groundedness)
         self.llm_model = LLM_MODEL  # runner đọc thuộc tính này để in ra màn hình
