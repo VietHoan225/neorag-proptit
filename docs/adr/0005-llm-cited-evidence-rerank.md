@@ -22,6 +22,7 @@
 | 6 | E1 nhưng giữ đoạn top-1 của retriever cố định | 0 | Bỏ: mô phỏng 0.938, thấp hơn |
 | 7 | Một prompt dặn "ghi mọi nguồn, kể đủ" (A4) | 0 | **Bỏ**: nguồn tốt hơn nhưng câu trả lời dài ra, SP tụt |
 | 8 | **Câu trả lời của lần đọc 1 + gộp nguồn của 2 lần đọc (lần 2 dùng prompt A4)** (A5) | +1/câu | Chọn (04/11) |
+| 9 | Như #8 + lần đọc thứ 3 (prompt E2) chỉ lấp ô top-5 còn trống (A6) | +2/câu | **Bỏ**: public đổi 3 câu, retrieval y hệt |
 
 ## Quyết định
 Chọn **#4 + #5**:
@@ -53,6 +54,7 @@ retrieval (ADR-0003/0004) → 20 đoạn đầu vào prompt → haiku: câu tr�
 | A2: + bỏ câu rào đón thuần ở cuối (code) | 0.9840 | 0.936 | 0.638 | #7: 88.17 (chấm lại 87.99) |
 | A4: prompt "mọi nguồn, kể đủ, được tính" (bỏ) | 0.9865 | 0.927 | 0.651 | không nộp (dài 257 → 279 ký tự) |
 | **A5: câu trả lời A2 + gộp nguồn A2 ∪ A4** | **0.9876** | 0.936 | 0.638 | **#9: 89.15** (retrieval 93.93, R@5 92.58) |
+| A6: A5 + nguồn lần đọc E2 làm tầng 3 (bỏ) | 0.9878 | 0.936 | 0.638 | #10: 89.05 (retrieval 93.93, y hệt #9) |
 
 - R9 không làm tụt Recall@5 ở câu nào trên dev; 0 câu bị lọt dòng "NGUỒN" vào câu trả lời; 1−Noise public 79.1 → 83.9.
 - E1, câu 3+ đoạn gold (9 câu): 0.804 → 0.856.

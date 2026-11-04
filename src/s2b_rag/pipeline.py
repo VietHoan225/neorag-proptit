@@ -10,7 +10,7 @@ query ─► retrieval preset (mặc định `hybrid_r10`: câu không dấu đ�
 
 Runner của BTC không truyền tham số khi khởi tạo pipeline, nên giá trị mặc định của class CHÍNH LÀ cấu hình nộp
 bài. Lịch sử: S2BPipelineR9 (#4) → S2BPipelineCtx20 → S2BPipelineE2 (#5) → S2BPipelineA (#6) → S2BPipelineA2 (#7)
-→ S2BPipelineA5 (#9, = S2BPipeline) ; S2BPipelineA3 (#8, bỏ) ; S2BPipelineA4 (bỏ).
+→ S2BPipelineA5 (#9, = S2BPipeline) ; S2BPipelineA3 (#8, bỏ) ; S2BPipelineA4 (bỏ) ; S2BPipelineA6 (#10, bỏ).
 """
 
 from __future__ import annotations
@@ -227,9 +227,29 @@ class S2BPipelineA5(S2BPipelineA2):
         return merge_tiers(tiers, second)
 
 
+class S2BPipelineA6(S2BPipelineA5):
+    """Thí nghiệm A6 = A5 + lần đọc thứ 3 (prompt E2 của bài #5: trả lời trước, 1 dòng NGUỒN ở cuối) → CHỈ lấy nguồn,
+    xếp làm tầng thứ 3: chỉ lấp các ô còn trống sau đoạn chính/phụ của A5, không đẩy đoạn nào của A5 ra.
+
+    Lý do (cache dev_casual): đoạn được trích là gold 81.9%, ô lấp theo retriever chỉ 1.2%; public A5 có 119/210 ô top-5
+    là ô lấp. Chọn E2 vì đã có trong cache (public 0 USD), không phải vì nó là prompt chọn nguồn tốt nhất.
+    Chi phí ngày thi: 3 lần gọi/câu. Chạy: `--pipeline s2b_rag.pipeline:S2BPipelineA6`. So với `S2BPipelineA5` (#9)."""
+
+    third_prompt = SYSTEM_PROMPT_E2
+
+    def extra_tiers(
+        self, query: str, context: list[Document], allowed: list[int], tiers: list[list[int]]
+    ) -> list[list[int]]:
+        merged = super().extra_tiers(query, context, allowed, tiers)
+        raw = self.llm.chat(build_messages(query, context, self.third_prompt), model=self.llm_model)
+        _, third = split_sources(raw, allowed)
+        return [*merged, third]
+
+
 class S2BPipeline(S2BPipelineA5):
     """CẤU HÌNH NỘP BÀI (chốt 04/11) = A5: public #9 89.15 (retrieval 93.93). Trước đó A2: #7 88.17 (chấm lại 87.99).
-    Mỗi câu gọi haiku 2 lần (câu trả lời của lần 1 + nguồn gộp của 2 lần); chatbot chỉ cần lần 1.
+    Mỗi câu gọi haiku 2 lần (câu trả lời của lần 1 + nguồn gộp của 2 lần), +1 lần thêm dấu nếu câu không dấu (R10);
+    chatbot chỉ cần lần 1 (+ thêm dấu).
 
     Ngày thi: `neorag run private_test --pipeline s2b_rag.pipeline:S2BPipeline`. Đổi cấu hình nộp bài = đổi lớp cha
     của class này, không sửa các class thí nghiệm ở trên."""

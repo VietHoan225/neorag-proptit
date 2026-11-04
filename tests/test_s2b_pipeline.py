@@ -465,3 +465,24 @@ def test_a2_still_calls_llm_once():
     pipeline.index(docs)
     pipeline.run("câu hỏi")
     assert len(llm.calls) == 1
+
+
+def test_a6_third_read_only_fills_free_top5_slots():
+    from s2b_rag.generate import SYSTEM_PROMPT_A, SYSTEM_PROMPT_A4, SYSTEM_PROMPT_E2
+    from s2b_rag.pipeline import S2BPipelineA6
+
+    replies = {
+        SYSTEM_PROMPT_A: "Ý HỎI:\nÝ 1: x | NGUỒN: 4\nTRẢ LỜI:\nCâu trả lời lần một.",
+        SYSTEM_PROMPT_A4: "Ý HỎI:\nÝ 1: x | NGUỒN: 4, 9\nTRẢ LỜI:\nLần hai.",
+        SYSTEM_PROMPT_E2: "Lần ba.\nNGUỒN: 17, 4",
+    }
+    llm = FakeLLM(lambda m: replies[m[0]["content"]])
+    docs = [Document(i, "CLB Lập Trình PTIT", "Chủ đề", f"Đoạn {i}.") for i in range(1, 26)]
+    pipeline = S2BPipelineA6(retriever="bm25_noaccent_bi", llm=llm)
+    pipeline.retriever = _FixedRanker(list(range(1, 26)))
+    pipeline.index(docs)
+    out = pipeline.run("câu hỏi")
+    assert len(llm.calls) == 3
+    assert out.answer == "Câu trả lời lần một."
+    # chính [4] → phụ [9] → tầng 3 chỉ thêm 17 (4 đã có) → rồi retriever
+    assert out.retrieved_ids[:5] == [4, 9, 17, 1, 2] and len(out.retrieved_ids) == 10
