@@ -34,3 +34,6 @@ Thumbs.db
 # Plan cá nhân (không commit)
 docs/plan.md
 docs/journal.md
+
+# Sơ đồ / trang explainer vẽ bằng archify (bản nháp cá nhân, không commit)
+.archify/

@@ -1,10 +1,10 @@
 import re
 
 from conftest import FakeLLM
-from neorag.data import Query
+from neorag.data import Document, Query
 from neorag.predict import predict
 from s2b_rag.generate import build_messages, format_context, postprocess
-from s2b_rag.pipeline import S2BPipeline
+from s2b_rag.pipeline import S2BPipeline, S2BPipelineCtx20
 
 
 def test_postprocess_removes_markdown_and_joins_lines():
@@ -51,3 +51,264 @@ def test_prepare_finds_reranker_in_nested_layers(monkeypatch):
     S2BPipeline(retriever="hybrid_r7", llm=FakeLLM()).prepare()  # reranker nằm sâu bên trong
     S2BPipeline(retriever="bm25_noaccent_bi", llm=FakeLLM()).prepare()  # không có reranker
     assert loaded == ["BAAI/bge-reranker-v2-m3"]
+
+
+def test_split_sources_strips_line_and_keeps_only_allowed_ids():
+    from s2b_rag.generate import split_sources
+
+    raw = "GCC thành lập năm 2019.\nNGUỒN: 97, 12, 97, 555"
+    assert split_sources(raw, allowed=[12, 40, 97]) == ("GCC thành lập năm 2019.\n", [97, 12])
+    # markdown quanh nhãn, chữ thường
+    assert split_sources("Trả lời.\n**Nguồn:** 40", allowed=[40])[1] == [40]
+    # không có dòng nguồn / "không" → không trích gì, câu trả lời giữ nguyên
+    assert split_sources("Trả lời.", allowed=[1]) == ("Trả lời.", [])
+    assert split_sources("Tài liệu không có.\nNGUỒN: không", allowed=[1])[1] == []
+
+
+def test_promote_cited_moves_cited_to_front_in_retriever_order():
+    from s2b_rag.generate import promote_cited
+
+    ranked = [5, 3, 9, 1, 7, 8, 2, 4]
+    assert promote_cited(ranked, [2, 3]) == [3, 2, 5, 9, 1, 7, 8, 4]
+    assert promote_cited(ranked, []) == ranked
+
+
+def test_pipeline_promotes_cited_doc_and_hides_sources_line(corpus):
+    llm = FakeLLM(lambda messages: "CLB Multimedia PTIT thành lập ngày 10/11/2012.\nNGUỒN: 1")
+    pipeline = S2BPipeline(retriever="bm25_noaccent_bi", n_context=2, llm=llm)
+    pipeline.index(corpus)
+    (pred,) = predict(pipeline, [Query("q", "clb multimedia thanh lap ngay nao")], max_retrieved=10)
+    assert "NGUỒN" not in pred.answer
+    assert pred.answer == "CLB Multimedia PTIT thành lập ngày 10/11/2012."
+    assert pred.retrieved_ids[:2] == [1, 2]  # đoạn 1 được trích nên lên trước đoạn 2
+
+
+class _FixedRanker:
+    """Retriever giả: luôn xếp các đoạn theo đúng thứ tự `order`."""
+
+    def __init__(self, order):
+        self.order = order
+
+    def index(self, corpus):
+        pass
+
+    def search(self, query):
+        return [(doc_id, 1.0 / rank) for rank, doc_id in enumerate(self.order, 1)]
+
+
+def _pipeline_with(n_context, cite, cls=S2BPipeline):
+    docs = [Document(i, "CLB Lập Trình PTIT", "Chủ đề", f"Đoạn {i}.") for i in range(1, 26)]
+    llm = FakeLLM(lambda messages: f"Trả lời.\nNGUỒN: {cite}")
+    pipeline = cls(retriever="bm25_noaccent_bi", n_context=n_context, llm=llm)
+    pipeline.retriever = _FixedRanker(list(range(1, 26)))  # hạng i = đoạn i
+    pipeline.index(docs)
+    return pipeline, llm
+
+
+def test_e1_cited_doc_beyond_rank_10_enters_top5_and_still_10_ids():
+    pipeline, llm = _pipeline_with(n_context=20, cite="15, 2")
+    out = pipeline.run("câu hỏi")
+    # đoạn được trích lên đầu (giữ thứ tự retriever: 2 trước 15), rồi lấp đủ 10 id
+    assert out.retrieved_ids == [2, 15, 1, 3, 4, 5, 6, 7, 8, 9]
+    assert len(re.findall(r"^\[\d+\]", llm.calls[0][1]["content"], re.MULTILINE)) == 20
+
+
+def test_e1_ctx10_ignores_unseen_doc_and_matches_cut_before():
+    # haiku chỉ thấy 10 đoạn → id 15 bị bỏ (không có trong prompt); kết quả như bài nộp #4
+    pipeline, _ = _pipeline_with(n_context=10, cite="15, 2")
+    assert pipeline.run("câu hỏi").retrieved_ids == [2, 1, 3, 4, 5, 6, 7, 8, 9, 10]
+
+
+def test_e1_cut_after_equals_cut_before_when_cited_within_top10():
+    import random
+
+    from s2b_rag.generate import promote_cited
+
+    rng = random.Random(0)
+    for _ in range(200):
+        ranked = rng.sample(range(1, 119), 30)
+        cited = rng.sample(ranked[:10], rng.randint(0, 6))
+        assert promote_cited(ranked, cited)[:10] == promote_cited(ranked[:10], cited)
+
+
+def test_ctx20_class_defaults():
+    pipeline = S2BPipelineCtx20(retriever="bm25_noaccent_bi", llm=FakeLLM())
+    assert (pipeline.n_context, pipeline.n_retrieved) == (20, 10)
+
+
+def _sources_only_then(second):
+    """LLM giả: lần đầu chỉ viết dòng NGUỒN (lỗi thật ở train-0063), lần gọi lại (có câu nhắc) trả `second`."""
+    from s2b_rag.generate import RETRY_NOTE
+
+    return FakeLLM(lambda m: second if RETRY_NOTE in m[-1]["content"] else "NGUỒN: 3")
+
+
+def test_empty_answer_retries_once_with_note(corpus):
+    llm = _sources_only_then("CLB Multimedia PTIT thành lập ngày 10/11/2012.\nNGUỒN: 2")
+    pipeline = S2BPipeline(retriever="bm25_noaccent_bi", llm=llm)
+    pipeline.index(corpus)
+    out = pipeline.run("clb multimedia thanh lap ngay nao")
+    assert out.answer == "CLB Multimedia PTIT thành lập ngày 10/11/2012."
+    assert out.retrieved_ids[0] == 2  # nguồn lấy từ lần gọi lại
+    assert len(llm.calls) == 2
+
+
+def test_empty_twice_uses_fallback_but_keeps_first_citation(corpus):
+    from s2b_rag.generate import FALLBACK_ANSWER
+
+    llm = _sources_only_then("NGUỒN: 3")
+    pipeline = S2BPipeline(retriever="bm25_noaccent_bi", llm=llm)
+    pipeline.index(corpus)
+    out = pipeline.run("clb multimedia thanh lap ngay nao")
+    assert out.answer == FALLBACK_ANSWER  # không bao giờ rỗng → file nộp luôn hợp lệ
+    assert out.retrieved_ids[0] == 3
+    assert len(llm.calls) == 2  # chỉ gọi lại đúng 1 lần
+
+
+def test_normal_answer_calls_llm_once(corpus):
+    llm = FakeLLM(lambda m: "GCC ra đời năm 2023.\nNGUỒN: 3")
+    pipeline = S2BPipeline(retriever="bm25_noaccent_bi", llm=llm)
+    pipeline.index(corpus)
+    assert pipeline.run("gcc ra doi nam nao").answer == "GCC ra đời năm 2023."
+    assert len(llm.calls) == 1
+
+
+def test_e2_prompt_changes_only_two_rules():
+    import difflib
+
+    from s2b_rag.generate import SYSTEM_PROMPT, SYSTEM_PROMPT_E2
+
+    changed = [
+        d
+        for d in difflib.ndiff(SYSTEM_PROMPT.splitlines(), SYSTEM_PROMPT_E2.splitlines())
+        if d[0] in "+-"
+    ]
+    assert len(changed) == 4  # 2 dòng bị thay, mỗi dòng một "-" và một "+"
+    assert "câu hỏi hỏi trực tiếp" in SYSTEM_PROMPT_E2 and "lời khuyên" in SYSTEM_PROMPT_E2
+
+
+def test_e2_class_uses_new_prompt_and_default_stays_old():
+    from s2b_rag.generate import SYSTEM_PROMPT, SYSTEM_PROMPT_E2
+    from s2b_rag.pipeline import S2BPipelineE2
+
+    e2 = S2BPipelineE2(retriever="bm25_noaccent_bi", llm=FakeLLM())
+    assert (e2.n_context, e2.system_prompt) == (20, SYSTEM_PROMPT_E2)
+    assert S2BPipeline(retriever="bm25_noaccent_bi", llm=FakeLLM()).system_prompt == SYSTEM_PROMPT
+    pipeline, llm = _pipeline_with(n_context=20, cite="1", cls=S2BPipelineE2)
+    pipeline.run("câu hỏi")
+    assert llm.calls[0][0]["content"] == SYSTEM_PROMPT_E2
+
+
+# --- Thí nghiệm A: chọn nguồn theo từng ý (1) + trả lời gọn (3) + giữ nguồn đã dùng (4) ---
+
+_A_REPLY = (
+    "Ý HỎI:\n"
+    "Ý 1: GCC thành lập năm nào | NGUỒN: 15, 2\n"
+    "Ý 2: đơn vị hỗ trợ chuyên môn | NGUỒN: 3\n"
+    "**TRẢ LỜI:**\n"
+    "GCC thành lập năm 2023 và được Khoa Đa phương tiện hỗ trợ chuyên môn."
+)
+
+
+def test_split_aspects_primary_per_aspect_then_secondary():
+    from s2b_rag.generate import split_aspects
+
+    answer, tiers = split_aspects(_A_REPLY, allowed=[2, 3, 15])
+    assert answer.strip() == "GCC thành lập năm 2023 và được Khoa Đa phương tiện hỗ trợ chuyên môn."
+    assert tiers == [[15, 3], [2]]  # đoạn ghi đầu của mỗi ý = chính; còn lại = phụ
+    assert split_aspects(_A_REPLY, allowed=[2, 3])[1] == [
+        [2, 3],
+        [],
+    ]  # 15 ngoài prompt → 2 thành đoạn chính
+
+
+def test_split_aspects_falls_back_to_r9_when_format_ignored():
+    from s2b_rag.generate import split_aspects
+
+    assert split_aspects("GCC ra đời năm 2023.\nNGUỒN: 3", allowed=[3]) == (
+        "GCC ra đời năm 2023.\n",
+        [[3]],
+    )
+
+
+def test_promote_tiers_keeps_retriever_order_within_tier():
+    from s2b_rag.generate import promote_cited, promote_tiers
+
+    ranked = [5, 9, 2, 1, 7, 3]
+    assert promote_tiers(ranked, [[3, 2], [9]]) == [2, 3, 9, 5, 1, 7]
+    assert promote_tiers(ranked, [[2, 3]]) == promote_cited(ranked, [2, 3])
+
+
+def test_prompt_a_changes_only_format_citation_and_trim_rules():
+    import difflib
+
+    from s2b_rag.generate import SYSTEM_PROMPT_A, SYSTEM_PROMPT_E2
+
+    removed = [
+        d
+        for d in difflib.ndiff(SYSTEM_PROMPT_E2.splitlines(), SYSTEM_PROMPT_A.splitlines())
+        if d[0] == "-"
+    ]
+    assert len(removed) == 3  # luật số hiệu, luật bỏ lời khuyên, đoạn định dạng NGUỒN cũ (1 dòng)
+    assert "TRẢ LỜI:" in SYSTEM_PROMPT_A and "Sau câu trả lời, xuống dòng" not in SYSTEM_PROMPT_A
+
+
+def test_pipeline_a_puts_each_aspect_primary_in_top5_and_hides_aspects():
+    from s2b_rag.pipeline import S2BPipelineA
+
+    docs = [Document(i, "CLB Lập Trình PTIT", "Chủ đề", f"Đoạn {i}.") for i in range(1, 26)]
+    llm = FakeLLM(lambda m: _A_REPLY)
+    pipeline = S2BPipelineA(retriever="bm25_noaccent_bi", llm=llm)
+    pipeline.retriever = _FixedRanker(list(range(1, 26)))
+    pipeline.index(docs)
+    out = pipeline.run("câu hỏi")
+    assert out.retrieved_ids[:3] == [3, 15, 2] and len(out.retrieved_ids) == 10
+    assert (
+        "Ý" not in out.answer.split()[0]
+        and "NGUỒN" not in out.answer
+        and "TRẢ LỜI" not in out.answer
+    )
+    assert llm.calls[0][0]["content"].endswith(
+        "chỉ dùng thông tin từ các tài liệu đã ghi ở phần Ý HỎI>"
+    )
+
+
+def test_keep_used_sources_swaps_uncited_used_doc_into_ranks_6_to_10():
+    from s2b_rag.generate import keep_used_sources
+
+    texts = {i: f"đoạn số {i} nói chuyện khác hẳn" for i in range(1, 13)}
+    texts[11] = (
+        "CLB có tài khoản Instagram clbmultimedia ptit để đăng ảnh"  # bị cắt nhưng đã được dùng
+    )
+    texts[10] = "lịch sinh hoạt hằng tuần của câu lạc bộ"  # không đóng góp gì → bị thay
+    answer = "CLB Multimedia PTIT có tài khoản Instagram clbmultimedia.ptit."
+    kept = list(range(1, 11))
+    out = keep_used_sources(answer, kept, candidates=[11, 12], texts=texts, protected={1})
+    assert out[:5] == kept[:5]  # top-5 không đổi → Recall/MRR/NDCG@5 không đổi
+    assert 11 in out[5:] and len(out) == 10
+    # không có cụm từ riêng của đoạn bị cắt → giữ nguyên
+    assert keep_used_sources("Không liên quan.", kept, [11], texts, set()) == kept
+
+
+def test_keep_used_sources_never_drops_doc_that_supports_answer_or_is_cited():
+    from s2b_rag.generate import keep_used_sources
+
+    texts = {i: f"văn bản riêng số {i} khác" for i in range(1, 12)}
+    texts[10] = "hạn đăng ký là ngày 10/09/2026 qua link"
+    texts[11] = "tài khoản Instagram clbmultimedia ptit"
+    answer = "Hạn đăng ký là ngày 10/09/2026, có tài khoản Instagram clbmultimedia ptit."
+    kept = list(range(1, 11))
+    out = keep_used_sources(answer, kept, [11], texts, protected={9})
+    assert 10 in out and 9 in out  # 10 có cụm riêng, 9 được trích → không bị thay
+    assert out[7] == 11 and out[8:] == [9, 10]  # thay đoạn hợp lệ cuối cùng: hạng 8
+
+
+def test_keep_used_sources_ignores_club_names_already_in_kept_docs():
+    from s2b_rag.generate import keep_used_sources
+
+    # báo động giả thật ở dev (train-0011): cụm "gcc tức clb" mới, nhưng mọi TỪ đều có ở đoạn nộp
+    texts = {i: f"GCC là CLB Nhà Sáng Tạo Game PTIT, tức là đoạn {i}" for i in range(1, 11)}
+    texts[11] = "GCC tức CLB Nhà Sáng Tạo Game PTIT"
+    answer = "GCC tức CLB Nhà Sáng Tạo Game PTIT."
+    kept = list(range(1, 11))
+    assert keep_used_sources(answer, kept, [11], texts, protected=set()) == kept
