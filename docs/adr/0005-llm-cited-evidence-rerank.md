@@ -1,7 +1,7 @@
 # ADR-0005: Haiku trích nguồn trong lần sinh câu trả lời để xếp lại top-5 (R9, E1)
 
 - **Ngày:** 2026-11-03 (thí nghiệm A bổ sung 2026-11-04)
-- **Trạng thái:** Chấp nhận (R9 + E1 từ bài nộp #5; A từ bài #6; A2 = cấu hình nộp bài, #7 88.17)
+- **Trạng thái:** Chấp nhận (R9 + E1 từ bài nộp #5; A từ bài #6; A2 #7 88.17; **A5 = cấu hình nộp bài, #9 89.15**)
 
 ## Bối cảnh
 - Sau R10 (lần nộp #3: 79.80), retrieval public là 81.8, trong khi dev là 93. Trên dev_casual (ADR-0001), câu cần
@@ -20,6 +20,8 @@
 | 4 | **Trong lần sinh, haiku ghi thêm dòng "NGUỒN: id, id"; đoạn được trích lên top** | 0 | Chọn (R9) |
 | 5 | Như #4, haiku đọc 20 đoạn thay vì 10 (E1) | 0 | Chọn |
 | 6 | E1 nhưng giữ đoạn top-1 của retriever cố định | 0 | Bỏ: mô phỏng 0.938, thấp hơn |
+| 7 | Một prompt dặn "ghi mọi nguồn, kể đủ" (A4) | 0 | **Bỏ**: nguồn tốt hơn nhưng câu trả lời dài ra, SP tụt |
+| 8 | **Câu trả lời của lần đọc 1 + gộp nguồn của 2 lần đọc (lần 2 dùng prompt A4)** (A5) | +1/câu | Chọn (04/11) |
 
 ## Quyết định
 Chọn **#4 + #5**:
@@ -48,11 +50,17 @@ retrieval (ADR-0003/0004) → 20 đoạn đầu vào prompt → haiku: câu tr�
 | R9 bước 2: xếp lại theo nguồn | **0.9665** | 0.921 | 0.632 | **#4: 85.09** (retrieval 89.6) |
 | E1: đọc 20 đoạn (+ E2 prompt) | 0.9815 | 0.908 | 0.637 | **#5: 87.02** (R@5 90.1, NDCG 89.6) |
 | A: chọn nguồn theo từng ý (04/11) | 0.9840 | 0.936 | 0.628 | #6: 87.36 (retrieval 91.73) |
-| A2: + bỏ câu rào đón thuần ở cuối (code) | 0.9840 | 0.936 | 0.638 | **#7: 88.17** (chấm lại 87.99) |
+| A2: + bỏ câu rào đón thuần ở cuối (code) | 0.9840 | 0.936 | 0.638 | #7: 88.17 (chấm lại 87.99) |
+| A4: prompt "mọi nguồn, kể đủ, được tính" (bỏ) | 0.9865 | 0.927 | 0.651 | không nộp (dài 257 → 279 ký tự) |
+| **A5: câu trả lời A2 + gộp nguồn A2 ∪ A4** | **0.9876** | 0.936 | 0.638 | **#9: 89.15** (retrieval 93.93, R@5 92.58) |
 
 - R9 không làm tụt Recall@5 ở câu nào trên dev; 0 câu bị lọt dòng "NGUỒN" vào câu trả lời; 1−Noise public 79.1 → 83.9.
 - E1, câu 3+ đoạn gold (9 câu): 0.804 → 0.856.
 - Mức tăng R9 trên dev_casual (+7.5) khớp với public (+7.7) → xem ADR-0001.
+- **A5 (ensemble nguồn):** trong 1 lần gọi, chọn nguồn và viết câu trả lời dính nhau: dặn ghi nhiều nguồn thì câu trả
+  lời cũng kể nhiều (A4). Tách thành 2 lần đọc: lần 1 (prompt A) cho câu trả lời + nguồn, lần 2 (prompt A4) chỉ lấy
+  nguồn; id = [đoạn chính của cả 2 lần] rồi [đoạn phụ]. Một luật cố định, không dùng gold. dev_casual chỉ +0.36 (gần
+  trần) nhưng public retrieval 91.73 → 93.93 (+2.20, tất định), câu trả lời giống hệt #7 (42/42) → +0.98 điểm gốc.
 
 ## Hệ quả
 - Dễ hơn: câu nhiều ý không còn là điểm yếu lớn nhất của retrieval; chi phí mỗi câu vẫn là 1 lần gọi.
@@ -63,7 +71,9 @@ retrieval (ADR-0003/0004) → 20 đoạn đầu vào prompt → haiku: câu tr�
     hạng 6–10 (không đụng top-5).
   - Retrieval phụ thuộc vào việc LLM tuân theo định dạng; đầu ra không tất định (không truyền temperature).
   - Chatbot phải ẩn dòng NGUỒN khi stream câu trả lời.
+  - A5 gọi haiku 2 lần/câu khi chạy bài nộp → chi phí và thời gian gấp đôi; lần 2 viết câu trả lời rồi bỏ (tốn token).
+    Chatbot chỉ cần lần 1.
   - Không tách được tác dụng của E1 với E2 và với nhiễu sinh câu trả lời trong mức +1.93 của lần nộp #5.
 - Code: `src/s2b_rag/generate.py` (`split_sources`, `promote_cited`, `promote_tiers`, `split_aspects`,
   `keep_used_sources`), `src/s2b_rag/pipeline.py` (`S2BPipelineR9`, `S2BPipelineCtx20`, `S2BPipelineE2`,
-  `S2BPipelineA`, `S2BPipelineA2`; từ 04/11 `S2BPipeline` = A2 là cấu hình nộp bài); số liệu: `experiments/log.csv`; chi tiết: `docs/journal.md`.
+  `S2BPipelineA`, `S2BPipelineA2`, `S2BPipelineA5` + `merge_tiers`; từ 04/11 `S2BPipeline` = A5 là cấu hình nộp bài); số liệu: `experiments/log.csv`; chi tiết: `docs/journal.md`.

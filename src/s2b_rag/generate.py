@@ -95,6 +95,48 @@ SYSTEM_PROMPT_A = (
 )
 RETRY_NOTE_A = "\n\nHãy viết đủ cả hai phần: Ý HỎI, rồi TRẢ LỜI."
 
+# A4 (thử 04/11) = A + 5 luật gộp 1 lần chạy. Phân tích cache A2 trên dev_casual (0 USD, docs/journal.md): 8 câu SP < 1
+# đều đã có đủ gold trong top-5 → lỗi ở khâu viết; 3/5 đoạn gold thiếu khỏi top-5 có trong 20 đoạn nhưng không được
+# trích. Lỗi gặp: Ý HỎI đổi vai trò được hỏi (người đứng lớp → thành viên); câu hỏi liệt kê chỉ kể 1 mục, trích 1
+# nguồn; không tính số năm từ ngày thành lập; câu dài hơn đáp án mẫu (257 so với 216 ký tự).
+# GIỮ NGUYÊN các luật từ chối (Abstention public 100); không yêu cầu trích dẫn chứng (tốn token đầu ra).
+_A4_MULTI_OLD = "- Nếu câu hỏi có nhiều ý, trả lời lần lượt từng ý, mỗi ý gọn trong một câu."
+_A4_MULTI_NEW = (
+    _A4_MULTI_OLD
+    + "\n- Câu hỏi hỏi có hay không, hoặc hỏi những gì, những ai (giải thưởng, hoạt động, khóa học...) "
+    "thì nêu đủ mọi mục khớp trong tài liệu, mỗi mục ngắn gọn."
+)
+_A4_CALC_OLD = "chỉ áp dụng cho năm, đợt hoặc nhiệm kỳ nào."
+_A4_CALC_NEW = (
+    _A4_CALC_OLD
+    + "\n- Được tính trực tiếp từ số và ngày có trong tài liệu (vd số năm hoặc số ngày giữa hai mốc) và "
+    "nêu kết quả; không suy ra quy định, lịch hay con số mà tài liệu không ghi."
+)
+_A4_SCOPE_OLD = 'không thêm câu tóm lại kiểu "Vậy ...".'
+_A4_SCOPE_NEW = (
+    _A4_SCOPE_OLD
+    + "\n- Mỗi ý chỉ nêu thông tin trực tiếp cần cho ý đó, giữ đúng tên, số và điều kiện áp dụng; "
+    "không kể thêm lịch sử, thành tích hay hoạt động ngoài phạm vi được hỏi."
+)
+_A4_ROLE_OLD = "giữ đúng CLB, đối tượng và mốc thời gian của câu hỏi>"
+_A4_ROLE_NEW = (
+    "giữ đúng CLB, mốc thời gian và người hoặc vai trò mà câu hỏi nói tới (vd thành viên, người phụ trách, ban chủ "
+    "nhiệm, tân sinh viên), không đổi sang đối tượng khác>"
+)
+_A4_SRC_OLD = "<số hiệu các tài liệu trả lời trực tiếp ý này,"
+_A4_SRC_NEW = "<số hiệu mọi tài liệu có thông tin cần cho ý này,"
+_A4_RULES = [
+    (_A4_MULTI_OLD, _A4_MULTI_NEW),
+    (_A4_CALC_OLD, _A4_CALC_NEW),
+    (_A4_SCOPE_OLD, _A4_SCOPE_NEW),
+    (_A4_ROLE_OLD, _A4_ROLE_NEW),
+    (_A4_SRC_OLD, _A4_SRC_NEW),
+]
+SYSTEM_PROMPT_A4 = SYSTEM_PROMPT_A
+for _old, _new in _A4_RULES:
+    assert SYSTEM_PROMPT_A4.count(_old) == 1, _old
+    SYSTEM_PROMPT_A4 = SYSTEM_PROMPT_A4.replace(_old, _new)
+
 USER_TEMPLATE = """TÀI LIỆU:
 {context}
 
@@ -154,6 +196,17 @@ def promote_cited(ranked: list[int], cited: list[int]) -> list[int]:
     Giữ thứ tự retriever thay vì thứ tự LLM ghi: đoạn đứng đầu của reranker (thường là ý chính) vẫn ở hạng 1
     nếu được trích, nên MRR ít bị xáo trộn; LLM chỉ quyết định đoạn NÀO vào top, không quyết định thứ tự."""
     return promote_tiers(ranked, [cited])
+
+
+def merge_tiers(*tier_lists: list[list[int]]) -> list[list[int]]:
+    """A5: gộp nguồn của nhiều lần haiku đọc: [mọi đoạn chính, mọi đoạn phụ]. Kết quả 1 tầng (haiku không theo định
+    dạng A) được coi là tầng chính. Trùng lặp và thứ tự trong tầng do `promote_tiers` xử lý (giữ thứ tự retriever)."""
+    primary: list[int] = []
+    secondary: list[int] = []
+    for tiers in tier_lists:
+        primary += tiers[0] if tiers else []
+        secondary += [d for tier in tiers[1:] for d in tier]
+    return [primary, secondary]
 
 
 def promote_tiers(ranked: list[int], tiers: list[list[int]]) -> list[int]:

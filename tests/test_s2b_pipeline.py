@@ -387,14 +387,81 @@ def test_a3_class_uses_trim_hedges():
     assert pipeline.run("câu hỏi").answer == "Có phòng riêng cho thành viên."
 
 
-def test_default_pipeline_is_a2_submission_config():
-    from s2b_rag.generate import SYSTEM_PROMPT_A
-    from s2b_rag.pipeline import S2BPipeline, S2BPipelineA2
+def test_default_pipeline_is_a5_submission_config():
+    from s2b_rag.generate import SYSTEM_PROMPT_A, SYSTEM_PROMPT_A4
+    from s2b_rag.pipeline import S2BPipeline, S2BPipelineA5
 
     pipeline = S2BPipeline(retriever="bm25_noaccent_bi", llm=FakeLLM())
-    assert isinstance(pipeline, S2BPipelineA2)
+    assert isinstance(pipeline, S2BPipelineA5) and pipeline.second_prompt == SYSTEM_PROMPT_A4
     assert (pipeline.n_context, pipeline.n_retrieved, pipeline.system_prompt) == (
         20,
         10,
         SYSTEM_PROMPT_A,
     )
+
+
+def test_prompt_a4_only_adds_rules_and_keeps_refusal_rules():
+    import difflib
+
+    from s2b_rag.generate import SYSTEM_PROMPT_A, SYSTEM_PROMPT_A4
+
+    diff = list(difflib.ndiff(SYSTEM_PROMPT_A.splitlines(), SYSTEM_PROMPT_A4.splitlines()))
+    removed = [d[2:] for d in diff if d[0] == "-"]
+    added = [d[2:] for d in diff if d[0] == "+"]
+    assert (
+        len(removed) == 1 and len(added) == 4
+    )  # 1 dòng định dạng Ý (vai trò + mọi nguồn) + 3 luật mới
+    assert "Ý 1:" in removed[0]
+    # luật từ chối và định dạng Ý HỎI/TRẢ LỜI giữ nguyên
+    for keep in ("Tài liệu hiện có không có thông tin về", "Không đoán.", "Ý HỎI:", "TRẢ LỜI:"):
+        assert keep in SYSTEM_PROMPT_A4
+    assert "không suy ra quy định, lịch hay con số mà tài liệu không ghi" in SYSTEM_PROMPT_A4
+
+
+def test_a4_class_uses_a4_prompt_and_default_answers_with_prompt_a():
+    from s2b_rag.generate import SYSTEM_PROMPT_A, SYSTEM_PROMPT_A4
+    from s2b_rag.pipeline import S2BPipeline, S2BPipelineA2, S2BPipelineA4
+
+    a4 = S2BPipelineA4(retriever="bm25_noaccent_bi", llm=FakeLLM())
+    assert isinstance(a4, S2BPipelineA2)
+    assert (a4.n_context, a4.n_retrieved, a4.system_prompt) == (20, 10, SYSTEM_PROMPT_A4)
+    assert S2BPipeline(retriever="bm25_noaccent_bi", llm=FakeLLM()).system_prompt == SYSTEM_PROMPT_A
+
+
+def test_merge_tiers_unions_primary_and_secondary_and_treats_single_tier_as_primary():
+    from s2b_rag.generate import merge_tiers, promote_tiers
+
+    assert merge_tiers([[3], [5]], [[7, 3], [9]]) == [[3, 7, 3], [5, 9]]
+    assert merge_tiers([[4, 6]], [[], []]) == [[4, 6], []]  # 1 tầng (lỗi định dạng) → tầng chính
+    ranked = list(range(1, 12))
+    assert promote_tiers(ranked, merge_tiers([[3], [5]], [[7, 3], [9]]))[:5] == [3, 7, 5, 9, 1]
+
+
+def test_a5_keeps_first_answer_and_merges_sources_of_second_read():
+    from s2b_rag.generate import SYSTEM_PROMPT_A, SYSTEM_PROMPT_A4
+    from s2b_rag.pipeline import S2BPipelineA5
+
+    first = "Ý HỎI:\nÝ 1: x | NGUỒN: 4\nTRẢ LỜI:\nCâu trả lời lần một."
+    second = "Ý HỎI:\nÝ 1: x | NGUỒN: 4\nÝ 2: y | NGUỒN: 12, 8\nTRẢ LỜI:\nCâu trả lời lần hai."
+    replies = {SYSTEM_PROMPT_A: first, SYSTEM_PROMPT_A4: second}
+    llm = FakeLLM(lambda m: replies[m[0]["content"]])
+    docs = [Document(i, "CLB Lập Trình PTIT", "Chủ đề", f"Đoạn {i}.") for i in range(1, 26)]
+    pipeline = S2BPipelineA5(retriever="bm25_noaccent_bi", llm=llm)
+    pipeline.retriever = _FixedRanker(list(range(1, 26)))
+    pipeline.index(docs)
+    out = pipeline.run("câu hỏi")
+    assert len(llm.calls) == 2  # lần đọc thứ 2 dùng prompt A4
+    assert out.answer == "Câu trả lời lần một."  # câu trả lời của lần 1 (= A2)
+    assert out.retrieved_ids[:5] == [4, 12, 8, 1, 2] and len(out.retrieved_ids) == 10
+
+
+def test_a2_still_calls_llm_once():
+    from s2b_rag.pipeline import S2BPipelineA2
+
+    llm = FakeLLM(lambda m: "Ý HỎI:\nÝ 1: x | NGUỒN: 4\nTRẢ LỜI:\nCâu trả lời.")
+    docs = [Document(i, "CLB Lập Trình PTIT", "Chủ đề", f"Đoạn {i}.") for i in range(1, 26)]
+    pipeline = S2BPipelineA2(retriever="bm25_noaccent_bi", llm=llm)
+    pipeline.retriever = _FixedRanker(list(range(1, 26)))
+    pipeline.index(docs)
+    pipeline.run("câu hỏi")
+    assert len(llm.calls) == 1
