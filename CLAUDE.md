@@ -58,4 +58,4 @@ Response Relevancy, 1 − Noise Sensitivity, Abstention). Groundedness tính tr�
 ## Trạng thái hiện tại
 - Baseline BTC: train retrieval 0.72, SP 0.74, ROUGE-L 0.43; public 52.40 (ngưỡng 53.40).
 - **Tiến độ và bản đồ file: trong `docs/plan.md`** (mục "Tiến độ", "Bản đồ file của mình"). Đọc hai mục đó đầu mỗi phiên.
-- Đang làm: thí nghiệm A (`S2BPipelineA`: chọn nguồn theo từng ý + trả lời gọn + giữ nguồn đã dùng) trên nhánh `feature/casual-eval`, public #5 **87.02** (`S2BPipelineE2`). Tiếp theo: đo A trên dev_casual `--no-judge` → public #6 nếu không tệ hơn; rồi PR vào develop, ẩn dòng NGUỒN trong chatbot, chống sự cố ngày thi (mục 8b), README/ADR/slide.
+- Đang làm: đã chốt `S2BPipeline` = A2 (public #7 **88.17**, chấm lại cùng file 87.99 — judge không tất định) trên nhánh `feature/casual-eval`. Tiếp theo: chống sự cố ngày thi (mục 8b), PR vào develop + merge `feature/chatbot` (chatbot phải ẩn phần Ý HỎI/NGUỒN của A), README/ADR/slide; code freeze 07/11.

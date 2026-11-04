@@ -13,6 +13,7 @@ import re
 import unicodedata
 
 from neorag.data import Document
+from neorag.text import split_sentences
 
 SYSTEM_PROMPT = """Bạn là trợ lý hỏi đáp về cộng đồng S2B tại Học viện Công nghệ Bưu chính Viễn thông (PTIT), \
 gồm CLB Lập Trình PTIT (ProPTIT), CLB Multimedia PTIT (MPC) và CLB Nhà Sáng Tạo Game PTIT (GCC).
@@ -245,6 +246,79 @@ def keep_used_sources(
         if unique(pos) < len(gain):
             out[pos] = cand
     return out
+
+
+# A2 (thử 04/11): câu trả lời public #6 dài 304 ký tự (đáp án mẫu ~210); 17% số ký tự là câu rào đón ("Tài liệu không
+# ghi ..."), gấp ~3 lần dev_casual (6%). Đáp án mẫu train chỉ 6/78 câu có rào đón. Bỏ bằng code (0 lần gọi LLM).
+_ANY_HEDGE = re.compile(
+    r"(tài liệu|thông tin)[^.]{0,25}(không|chưa) (ghi|có|nêu|đề cập|nói)|không có thông tin",
+    re.IGNORECASE,
+)
+_PURE_HEDGE = re.compile(
+    r"^(tài liệu|thông tin)[^.,;]{0,25}(không|chưa) (ghi|có|nêu|đề cập|nói)", re.IGNORECASE
+)
+_CONTRAST = re.compile(r"\b(chỉ|nhưng|tuy nhiên|mà)\b", re.IGNORECASE)
+
+
+def drop_tail_hedges(answer: str) -> str:
+    """A2: bỏ câu rào đón THUẦN không đứng đầu (vd "Tài liệu không ghi số tiền cụ thể.").
+
+    - Câu đầu là rào đón (câu hỏi không có đáp án / thiếu ý chính) → giữ nguyên cả câu trả lời (Abstention).
+    - Chỉ bỏ câu MỞ ĐẦU bằng "Tài liệu/Thông tin ... không ghi/có/nêu ..." và không có vế "chỉ/nhưng/tuy nhiên/mà"
+      (vế đó thường mang thông tin: "Tài liệu không ghi rõ X, chỉ có nội dung gesture ...").
+    Mô phỏng trên cache dev_casual (A): ROUGE-L 0.6283 → 0.6375, SP giữ nguyên 0.9359, 0 câu tụt, 8/8 câu không có
+    đáp án vẫn từ chối; public #6 đổi 6/42 câu (dài 304 → 291)."""
+    sentences = split_sentences(answer)
+    if len(sentences) < 2 or _ANY_HEDGE.search(sentences[0]):
+        return answer
+    kept = [sentences[0]] + [
+        s for s in sentences[1:] if not (_PURE_HEDGE.search(s) and not _CONTRAST.search(s))
+    ]
+    return " ".join(kept)
+
+
+# A3 (thử 04/11): A2 tăng public 87.36 → 88.17 (1−Noise +5.56) chỉ nhờ bỏ câu rào đón thuần ở cuối. Mở rộng cùng
+# cơ chế: (1) chỉ coi là "câu trả lời từ chối" khi câu đầu MỞ ĐẦU bằng rào đón (A2 bỏ qua cả câu trả lời nếu câu đầu
+# CHỨA rào đón ở bất kỳ đâu, vd "CLB thành lập 09/10/2011 ..., dù tài liệu không ghi ..."); (2) bỏ vế rào đón giữa
+# câu; (3) bỏ cụm mở đầu "Theo tài liệu, ..." — đáp án mẫu không viết kiểu này.
+_LEAD_HEDGE = re.compile(
+    r"^(tài liệu|thông tin)[^.,;]{0,25}(không|chưa) (ghi|có|nêu|đề cập|nói)|^không có thông tin",
+    re.IGNORECASE,
+)
+_META_PREFIX = re.compile(
+    r"^(theo (các )?tài liệu( hiện có)?|tài liệu (hiện có )?(cũng )?(ghi|nêu|cho biết|mô tả|đề cập)( rõ)?"
+    r"( rằng| là)?)\s*[,:]?\s*",
+    re.IGNORECASE,
+)
+_HEDGE_CLAUSE = re.compile(
+    r"\s*[,;]\s*(và |nhưng |còn |dù |mặc dù )?(tài liệu|thông tin)[^.,;]{0,25}(không|chưa) "
+    r"(ghi|có|nêu|đề cập|nói)[^.;]*",
+    re.IGNORECASE,
+)
+
+
+def trim_hedges(answer: str) -> str:
+    """A3: như `drop_tail_hedges`, thêm bỏ vế rào đón giữa câu và cụm "Theo tài liệu, ..."; bảo vệ theo câu đầu.
+
+    Câu đầu MỞ ĐẦU bằng rào đón ("Tài liệu hiện có không có thông tin về ...") → giữ nguyên cả câu trả lời (Abstention).
+    Mô phỏng trên cache dev_casual (A): ROUGE-L 0.6375 (A2) → 0.6407, SP giữ nguyên, 0 câu tụt so với A2, 8/8 câu không có
+    đáp án giữ nguyên; public đổi thêm 6/42 câu so với A2 (dài 291 → 281). Bằng chứng dev yếu (chỉ 3 câu đổi)."""
+    sentences = split_sentences(answer)
+    if not sentences or _LEAD_HEDGE.search(sentences[0]):
+        return answer
+    out = []
+    for k, s in enumerate(sentences):
+        if k > 0 and _PURE_HEDGE.search(s) and not _CONTRAST.search(s):
+            continue
+        if _META_PREFIX.match(s) and len(_META_PREFIX.sub("", s)) > 15:
+            s = _META_PREFIX.sub("", s)
+            s = s[:1].upper() + s[1:]
+        trimmed = _HEDGE_CLAUSE.sub("", s)
+        if trimmed != s and len(trimmed) > 15:
+            trimmed = trimmed.rstrip()
+            s = trimmed if trimmed.endswith((".", "!", "?")) else trimmed + "."
+        out.append(s)
+    return " ".join(out)
 
 
 _HEADING = re.compile(r"^\s{0,3}#{1,6}\s*", re.MULTILINE)

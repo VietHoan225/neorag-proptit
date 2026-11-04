@@ -1,7 +1,7 @@
 # ADR-0005: Haiku trích nguồn trong lần sinh câu trả lời để xếp lại top-5 (R9, E1)
 
 - **Ngày:** 2026-11-03 (thí nghiệm A bổ sung 2026-11-04)
-- **Trạng thái:** Chấp nhận (R9 + E1 là bài nộp #5; A đang chờ xác nhận public)
+- **Trạng thái:** Chấp nhận (R9 + E1 từ bài nộp #5; A từ bài #6; A2 = cấu hình nộp bài, #7 88.17)
 
 ## Bối cảnh
 - Sau R10 (lần nộp #3: 79.80), retrieval public là 81.8, trong khi dev là 93. Trên dev_casual (ADR-0001), câu cần
@@ -47,7 +47,8 @@ retrieval (ADR-0003/0004) → 20 đoạn đầu vào prompt → haiku: câu tr�
 | R9 bước 1: đọc 10 đoạn thay vì 8 | — | dev 0.9145 → 0.9338 | dev 0.6365 → 0.6658 | — |
 | R9 bước 2: xếp lại theo nguồn | **0.9665** | 0.921 | 0.632 | **#4: 85.09** (retrieval 89.6) |
 | E1: đọc 20 đoạn (+ E2 prompt) | 0.9815 | 0.908 | 0.637 | **#5: 87.02** (R@5 90.1, NDCG 89.6) |
-| A: chọn nguồn theo từng ý (04/11) | 0.9840 | 0.936 | 0.628 | chưa nộp |
+| A: chọn nguồn theo từng ý (04/11) | 0.9840 | 0.936 | 0.628 | #6: 87.36 (retrieval 91.73) |
+| A2: + bỏ câu rào đón thuần ở cuối (code) | 0.9840 | 0.936 | 0.638 | **#7: 88.17** (chấm lại 87.99) |
 
 - R9 không làm tụt Recall@5 ở câu nào trên dev; 0 câu bị lọt dòng "NGUỒN" vào câu trả lời; 1−Noise public 79.1 → 83.9.
 - E1, câu 3+ đoạn gold (9 câu): 0.804 → 0.856.
@@ -64,5 +65,5 @@ retrieval (ADR-0003/0004) → 20 đoạn đầu vào prompt → haiku: câu tr�
   - Chatbot phải ẩn dòng NGUỒN khi stream câu trả lời.
   - Không tách được tác dụng của E1 với E2 và với nhiễu sinh câu trả lời trong mức +1.93 của lần nộp #5.
 - Code: `src/s2b_rag/generate.py` (`split_sources`, `promote_cited`, `promote_tiers`, `split_aspects`,
-  `keep_used_sources`), `src/s2b_rag/pipeline.py` (`S2BPipeline`, `S2BPipelineCtx20`, `S2BPipelineE2`,
-  `S2BPipelineA`); số liệu: `experiments/log.csv`; chi tiết: `docs/journal.md`.
+  `keep_used_sources`), `src/s2b_rag/pipeline.py` (`S2BPipelineR9`, `S2BPipelineCtx20`, `S2BPipelineE2`,
+  `S2BPipelineA`, `S2BPipelineA2`; từ 04/11 `S2BPipeline` = A2 là cấu hình nộp bài); số liệu: `experiments/log.csv`; chi tiết: `docs/journal.md`.

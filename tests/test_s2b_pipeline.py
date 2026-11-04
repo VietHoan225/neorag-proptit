@@ -4,7 +4,7 @@ from conftest import FakeLLM
 from neorag.data import Document, Query
 from neorag.predict import predict
 from s2b_rag.generate import build_messages, format_context, postprocess
-from s2b_rag.pipeline import S2BPipeline, S2BPipelineCtx20
+from s2b_rag.pipeline import S2BPipelineCtx20, S2BPipelineR9
 
 
 def test_postprocess_removes_markdown_and_joins_lines():
@@ -31,7 +31,7 @@ def test_context_lists_id_club_topic_in_rank_order(corpus):
 
 def test_pipeline_end_to_end_with_fake_llm_and_bm25(corpus):
     llm = FakeLLM(lambda messages: "**CLB Multimedia PTIT** thành lập ngày 10/11/2012.")
-    pipeline = S2BPipeline(retriever="bm25_noaccent_bi", n_context=2, llm=llm)
+    pipeline = S2BPipelineR9(retriever="bm25_noaccent_bi", n_context=2, llm=llm)
     pipeline.prepare()
     pipeline.index(corpus)
     (pred,) = predict(pipeline, [Query("q", "clb multimedia thanh lap ngay nao")], max_retrieved=10)
@@ -48,8 +48,8 @@ def test_prepare_finds_reranker_in_nested_layers(monkeypatch):
 
     loaded = []
     monkeypatch.setattr(rerank, "load_cross_encoder", lambda name=None: loaded.append(name))
-    S2BPipeline(retriever="hybrid_r7", llm=FakeLLM()).prepare()  # reranker nằm sâu bên trong
-    S2BPipeline(retriever="bm25_noaccent_bi", llm=FakeLLM()).prepare()  # không có reranker
+    S2BPipelineR9(retriever="hybrid_r7", llm=FakeLLM()).prepare()  # reranker nằm sâu bên trong
+    S2BPipelineR9(retriever="bm25_noaccent_bi", llm=FakeLLM()).prepare()  # không có reranker
     assert loaded == ["BAAI/bge-reranker-v2-m3"]
 
 
@@ -75,7 +75,7 @@ def test_promote_cited_moves_cited_to_front_in_retriever_order():
 
 def test_pipeline_promotes_cited_doc_and_hides_sources_line(corpus):
     llm = FakeLLM(lambda messages: "CLB Multimedia PTIT thành lập ngày 10/11/2012.\nNGUỒN: 1")
-    pipeline = S2BPipeline(retriever="bm25_noaccent_bi", n_context=2, llm=llm)
+    pipeline = S2BPipelineR9(retriever="bm25_noaccent_bi", n_context=2, llm=llm)
     pipeline.index(corpus)
     (pred,) = predict(pipeline, [Query("q", "clb multimedia thanh lap ngay nao")], max_retrieved=10)
     assert "NGUỒN" not in pred.answer
@@ -96,7 +96,7 @@ class _FixedRanker:
         return [(doc_id, 1.0 / rank) for rank, doc_id in enumerate(self.order, 1)]
 
 
-def _pipeline_with(n_context, cite, cls=S2BPipeline):
+def _pipeline_with(n_context, cite, cls=S2BPipelineR9):
     docs = [Document(i, "CLB Lập Trình PTIT", "Chủ đề", f"Đoạn {i}.") for i in range(1, 26)]
     llm = FakeLLM(lambda messages: f"Trả lời.\nNGUỒN: {cite}")
     pipeline = cls(retriever="bm25_noaccent_bi", n_context=n_context, llm=llm)
@@ -145,7 +145,7 @@ def _sources_only_then(second):
 
 def test_empty_answer_retries_once_with_note(corpus):
     llm = _sources_only_then("CLB Multimedia PTIT thành lập ngày 10/11/2012.\nNGUỒN: 2")
-    pipeline = S2BPipeline(retriever="bm25_noaccent_bi", llm=llm)
+    pipeline = S2BPipelineR9(retriever="bm25_noaccent_bi", llm=llm)
     pipeline.index(corpus)
     out = pipeline.run("clb multimedia thanh lap ngay nao")
     assert out.answer == "CLB Multimedia PTIT thành lập ngày 10/11/2012."
@@ -157,7 +157,7 @@ def test_empty_twice_uses_fallback_but_keeps_first_citation(corpus):
     from s2b_rag.generate import FALLBACK_ANSWER
 
     llm = _sources_only_then("NGUỒN: 3")
-    pipeline = S2BPipeline(retriever="bm25_noaccent_bi", llm=llm)
+    pipeline = S2BPipelineR9(retriever="bm25_noaccent_bi", llm=llm)
     pipeline.index(corpus)
     out = pipeline.run("clb multimedia thanh lap ngay nao")
     assert out.answer == FALLBACK_ANSWER  # không bao giờ rỗng → file nộp luôn hợp lệ
@@ -167,7 +167,7 @@ def test_empty_twice_uses_fallback_but_keeps_first_citation(corpus):
 
 def test_normal_answer_calls_llm_once(corpus):
     llm = FakeLLM(lambda m: "GCC ra đời năm 2023.\nNGUỒN: 3")
-    pipeline = S2BPipeline(retriever="bm25_noaccent_bi", llm=llm)
+    pipeline = S2BPipelineR9(retriever="bm25_noaccent_bi", llm=llm)
     pipeline.index(corpus)
     assert pipeline.run("gcc ra doi nam nao").answer == "GCC ra đời năm 2023."
     assert len(llm.calls) == 1
@@ -193,7 +193,7 @@ def test_e2_class_uses_new_prompt_and_default_stays_old():
 
     e2 = S2BPipelineE2(retriever="bm25_noaccent_bi", llm=FakeLLM())
     assert (e2.n_context, e2.system_prompt) == (20, SYSTEM_PROMPT_E2)
-    assert S2BPipeline(retriever="bm25_noaccent_bi", llm=FakeLLM()).system_prompt == SYSTEM_PROMPT
+    assert S2BPipelineR9(retriever="bm25_noaccent_bi", llm=FakeLLM()).system_prompt == SYSTEM_PROMPT
     pipeline, llm = _pipeline_with(n_context=20, cite="1", cls=S2BPipelineE2)
     pipeline.run("câu hỏi")
     assert llm.calls[0][0]["content"] == SYSTEM_PROMPT_E2
@@ -312,3 +312,89 @@ def test_keep_used_sources_ignores_club_names_already_in_kept_docs():
     answer = "GCC tức CLB Nhà Sáng Tạo Game PTIT."
     kept = list(range(1, 11))
     assert keep_used_sources(answer, kept, [11], texts, protected=set()) == kept
+
+
+# --- A2: bỏ câu rào đón thuần ở cuối câu trả lời ---
+
+
+def test_drop_tail_hedges_removes_pure_trailing_hedge_only():
+    from s2b_rag.generate import drop_tail_hedges
+
+    ans = "Hạn đăng ký là 10/09/2026. Tài liệu không ghi số tiền cụ thể."
+    assert drop_tail_hedges(ans) == "Hạn đăng ký là 10/09/2026."
+    # vế "chỉ ..." mang thông tin → giữ
+    keep = "Có học vẽ khối cầu. Tài liệu không ghi rõ vẽ dáng người, chỉ có nội dung gesture."
+    assert drop_tail_hedges(keep) == keep
+    # rào đón nằm giữa câu có thông tin (không mở đầu bằng "Tài liệu") → giữ
+    mixed = "CLB có phòng riêng. Nếu vi phạm cả nhóm bị phạt, và tài liệu không ghi hình thức phạt."
+    assert drop_tail_hedges(mixed) == mixed
+
+
+def test_drop_tail_hedges_keeps_refusal_when_first_sentence_hedges():
+    from s2b_rag.generate import drop_tail_hedges
+
+    refusal = "Tài liệu hiện có không có thông tin về học phí. Tài liệu không ghi số tiền cụ thể."
+    assert drop_tail_hedges(refusal) == refusal  # Abstention: câu không có đáp án giữ nguyên
+    assert drop_tail_hedges("Một câu.") == "Một câu."
+
+
+def test_a2_applies_hedge_rule_and_keeps_a_prompt():
+    from s2b_rag.generate import SYSTEM_PROMPT_A
+    from s2b_rag.pipeline import S2BPipelineA2
+
+    reply = "Ý HỎI:\nÝ 1: hạn | NGUỒN: 2\nTRẢ LỜI:\nHạn là 10/09/2026. Tài liệu không ghi số tiền cụ thể."
+    docs = [Document(i, "CLB Lập Trình PTIT", "Chủ đề", f"Đoạn {i}.") for i in range(1, 26)]
+    llm = FakeLLM(lambda m: reply)
+    pipeline = S2BPipelineA2(retriever="bm25_noaccent_bi", llm=llm)
+    pipeline.retriever = _FixedRanker(list(range(1, 26)))
+    pipeline.index(docs)
+    assert pipeline.run("câu hỏi").answer == "Hạn là 10/09/2026."
+    assert llm.calls[0][0]["content"] == SYSTEM_PROMPT_A  # cùng prompt với A → trúng cache
+
+
+# --- A3: bỏ rào đón theo câu đầu + vế giữa câu + "Theo tài liệu" ---
+
+
+def test_trim_hedges_cleans_informative_answer_with_hedge_in_first_sentence():
+    from s2b_rag.generate import trim_hedges
+
+    ans = "CLB thành lập ngày 09/10/2011, dù tài liệu không ghi ngày sinh nhật. Tài liệu không ghi số tiền."
+    assert trim_hedges(ans) == "CLB thành lập ngày 09/10/2011."
+    assert trim_hedges("Có phòng riêng. Theo tài liệu, trưởng ban là Trần Ngọc Mai.") == (
+        "Có phòng riêng. Trưởng ban là Trần Ngọc Mai."
+    )
+
+
+def test_trim_hedges_keeps_refusal_and_contrast():
+    from s2b_rag.generate import trim_hedges
+
+    refusal = (
+        "Tài liệu hiện có không có thông tin về học phí. Tài liệu chỉ ghi CLB tổ chức training."
+    )
+    assert trim_hedges(refusal) == refusal
+    keep = "Có học vẽ khối cầu. Tài liệu không ghi rõ vẽ dáng người, chỉ có nội dung gesture."
+    assert trim_hedges(keep) == keep
+
+
+def test_a3_class_uses_trim_hedges():
+    from s2b_rag.pipeline import S2BPipelineA3
+
+    reply = "Ý HỎI:\nÝ 1: x | NGUỒN: 2\nTRẢ LỜI:\nCó phòng riêng cho thành viên, dù tài liệu không ghi rõ giờ mở. Tài liệu không ghi số tiền."
+    docs = [Document(i, "CLB Lập Trình PTIT", "Chủ đề", f"Đoạn {i}.") for i in range(1, 26)]
+    pipeline = S2BPipelineA3(retriever="bm25_noaccent_bi", llm=FakeLLM(lambda m: reply))
+    pipeline.retriever = _FixedRanker(list(range(1, 26)))
+    pipeline.index(docs)
+    assert pipeline.run("câu hỏi").answer == "Có phòng riêng cho thành viên."
+
+
+def test_default_pipeline_is_a2_submission_config():
+    from s2b_rag.generate import SYSTEM_PROMPT_A
+    from s2b_rag.pipeline import S2BPipeline, S2BPipelineA2
+
+    pipeline = S2BPipeline(retriever="bm25_noaccent_bi", llm=FakeLLM())
+    assert isinstance(pipeline, S2BPipelineA2)
+    assert (pipeline.n_context, pipeline.n_retrieved, pipeline.system_prompt) == (
+        20,
+        10,
+        SYSTEM_PROMPT_A,
+    )

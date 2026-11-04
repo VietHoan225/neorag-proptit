@@ -1,11 +1,15 @@
-"""Pipeline nộp bài: `neorag run <split> --pipeline s2b_rag.pipeline:S2BPipeline`.
+"""Pipeline nộp bài: `neorag run <split> --pipeline s2b_rag.pipeline:S2BPipeline` (= A2, bài nộp #7, 88.17).
 
 query ─► retrieval preset (mặc định `hybrid_r10`: câu không dấu được haiku viết lại có dấu, rồi hybrid + rerank
-         + quota CLB; xem ADR-0003/0004 và docs/journal.md) ─► 10 id
-      └► `n_context` đoạn đầu vào prompt (G1) ─► claude-haiku-5-5 (1 lần gọi) ─► hậu xử lý (G2)
-         └► dòng "NGUỒN:" → đoạn được trích lên đầu (R9) → cắt còn 10 id (E1: cắt sau, không cắt trước)
+         + quota CLB; xem ADR-0003/0004 và docs/journal.md) ─► 20 đoạn đầu vào prompt
+      └► claude-haiku-5-5 (1 lần gọi): "Ý HỎI: Ý n ... | NGUỒN: a, b" rồi "TRẢ LỜI:" (A)
+         └► đoạn chính của mỗi ý lên đầu, rồi đoạn phụ → cắt 10 id (R9/E1, ADR-0005)
+         └► hậu xử lý: bỏ markdown (G2) + bỏ câu rào đón thuần ở cuối (A2)
+         └► đoạn đã dùng mà quên trích → đổi vào hạng 6–10 (A)
 
-Runner của BTC không truyền tham số khi khởi tạo pipeline, nên giá trị mặc định ở đây CHÍNH LÀ cấu hình nộp bài.
+Runner của BTC không truyền tham số khi khởi tạo pipeline, nên giá trị mặc định của class CHÍNH LÀ cấu hình nộp
+bài. Lịch sử: S2BPipelineR9 (#4) → S2BPipelineCtx20 → S2BPipelineE2 (#5) → S2BPipelineA (#6) → S2BPipelineA2 (#7,
+= S2BPipeline) ; S2BPipelineA3 (#8, bỏ).
 """
 
 from __future__ import annotations
@@ -21,11 +25,13 @@ from s2b_rag.generate import (
     SYSTEM_PROMPT_A,
     SYSTEM_PROMPT_E2,
     build_messages,
+    drop_tail_hedges,
     keep_used_sources,
     postprocess,
     promote_tiers,
     split_aspects,
     split_sources,
+    trim_hedges,
     with_retry_note,
 )
 from s2b_rag.retrieval.dense import CACHE_PATH
@@ -34,7 +40,12 @@ from s2b_rag.retrieval.presets import DEFAULT, RETRIEVERS
 LLM_MODEL = "claude-haiku-5-5"  # LLM duy nhất được phép; KHÔNG truyền temperature
 
 
-class S2BPipeline(RAGPipeline):
+class S2BPipelineR9(RAGPipeline):
+    """Lớp gốc = cấu hình R9 (bài nộp #4, 85.09): retrieval → 10 đoạn → haiku ghi NGUỒN → đoạn được trích lên đầu.
+
+    Các thí nghiệm sau kế thừa từ đây (Ctx20 → E2 → A → A2 → A3) để mỗi bài nộp cũ vẫn tái hiện được.
+    Cấu hình nộp bài hiện tại là `S2BPipeline` ở cuối file."""
+
     def __init__(
         self,
         retriever: str = DEFAULT,
@@ -89,7 +100,7 @@ class S2BPipeline(RAGPipeline):
         # E1: cắt còn `n_retrieved` id SAU khi đưa đoạn được trích lên, để đoạn hạng 11–20 mà haiku trích
         # vẫn vào được top-5. Với n_context <= n_retrieved, kết quả y hệt cắt trước (bài nộp #4).
         retrieved_ids = promote_tiers(ranked, tiers)[: self.n_retrieved]
-        answer = postprocess(answer) or FALLBACK_ANSWER
+        answer = self.finalize_answer(postprocess(answer) or FALLBACK_ANSWER)
         return RAGOutput(
             answer=answer, retrieved_ids=self.finalize_ids(answer, retrieved_ids, allowed, tiers)
         )
@@ -107,8 +118,12 @@ class S2BPipeline(RAGPipeline):
         """Chỉnh lần cuối danh sách id nộp; mặc định giữ nguyên (A dùng để giữ nguồn đã dùng)."""
         return ids
 
+    def finalize_answer(self, answer: str) -> str:
+        """Chỉnh lần cuối câu trả lời (sau G2); mặc định giữ nguyên (A2 bỏ câu rào đón thuần ở cuối)."""
+        return answer
 
-class S2BPipelineCtx20(S2BPipeline):
+
+class S2BPipelineCtx20(S2BPipelineR9):
     """Thí nghiệm E1: haiku đọc 20 đoạn (nộp vẫn 10 id). Trần đo trên dev_casual: 0.985 (10) → 0.997 (20).
 
     Chạy: `--pipeline s2b_rag.pipeline:S2BPipelineCtx20` (CLI không truyền tham số nên cần class riêng)."""
@@ -150,3 +165,29 @@ class S2BPipelineA(S2BPipelineE2):
         texts = {i: self.docs[i].text for i in allowed}
         protected = {i for tier in tiers for i in tier}
         return keep_used_sources(answer, ids, candidates, texts, protected)
+
+
+class S2BPipelineA2(S2BPipelineA):
+    """Thí nghiệm A2 = A + bỏ câu rào đón thuần ở cuối câu trả lời (`drop_tail_hedges`, code, 0 lần gọi LLM).
+
+    Cùng prompt với A nên chạy lại trên dev_casual/public đều trúng cache (0 USD).
+    Chạy: `--pipeline s2b_rag.pipeline:S2BPipelineA2`. So với `S2BPipelineA` (bài nộp #6, 87.36)."""
+
+    def finalize_answer(self, answer: str) -> str:
+        return drop_tail_hedges(answer)
+
+
+class S2BPipelineA3(S2BPipelineA2):
+    """Thí nghiệm A3 = A + `trim_hedges` (A2 mở rộng: bảo vệ theo câu đầu mở đầu bằng rào đón, bỏ vế rào đón giữa câu,
+    bỏ "Theo tài liệu, ..."). Code, 0 lần gọi LLM; cùng prompt với A → trúng cache.
+    Chạy: `--pipeline s2b_rag.pipeline:S2BPipelineA3`. So với `S2BPipelineA2` (bài nộp #7, 88.17)."""
+
+    def finalize_answer(self, answer: str) -> str:
+        return trim_hedges(answer)
+
+
+class S2BPipeline(S2BPipelineA2):
+    """CẤU HÌNH NỘP BÀI (chốt 04/11) = A2: public #7 88.17 (chấm lại cùng file: 87.99 — judge không tất định).
+
+    Ngày thi: `neorag run private_test --pipeline s2b_rag.pipeline:S2BPipeline`. Đổi cấu hình nộp bài = đổi lớp cha
+    của class này, không sửa các class thí nghiệm ở trên."""
