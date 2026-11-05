@@ -127,3 +127,129 @@ def test_done_event_flags_full_refusal_only():
     )  # trả lời một phần: không phải từ chối
     events = list(ask_events(FakePipeline(), "clb mm tuyen tv khi nao"))
     assert events[-1]["refusal"] is False
+
+
+# ---- Memory ngắn hạn: câu hỏi nối tiếp ----
+
+HISTORY = [
+    {
+        "q": "CLB Multimedia PTIT tuyển thành viên khi nào?",
+        "a": "CLB Multimedia PTIT tuyển vào tháng 8/2026.",
+    }
+]
+
+
+def test_clean_history_keeps_last_two_valid_turns_and_truncates():
+    from s2b_rag.web.memory import MAX_TURN_CHARS, clean_history
+
+    raw = [
+        {"q": "a", "a": "b"},
+        "rác",
+        {"q": "c"},
+        {"q": "d", "a": "x" * 1000},
+        {"q": "e", "a": "f"},
+    ]
+    assert clean_history(raw) == [{"q": "d", "a": "x" * MAX_TURN_CHARS}, {"q": "e", "a": "f"}]
+    assert clean_history(None) == [] and clean_history({"q": "a"}) == []
+
+
+def test_condense_uses_history_and_falls_back_to_query():
+    from s2b_rag.web.memory import condense
+
+    class LLM:
+        def __init__(self, reply):
+            self.reply, self.calls = reply, []
+
+        def chat(self, messages, model):
+            self.calls.append(messages)
+            if isinstance(self.reply, Exception):
+                raise self.reply
+            return self.reply
+
+    llm = LLM('{"query": "CLB Nhà Sáng Tạo Game PTIT (GCC) tuyển thành viên khi nào?"}')
+    assert (
+        condense(llm, "m", "the con gcc", HISTORY)
+        == "CLB Nhà Sáng Tạo Game PTIT (GCC) tuyển thành viên khi nào?"
+    )
+    assert (
+        "CLB Multimedia PTIT tuyển thành viên khi nào?" in llm.calls[0][1]["content"]
+    )  # có lượt trước
+    assert condense(LLM(""), "m", "the con gcc", HISTORY) == "the con gcc"
+    assert condense(LLM(ConnectionError()), "m", "the con gcc", HISTORY) == "the con gcc"
+
+
+def test_followup_is_condensed_before_retrieval_and_answer():
+    class Recording(FakePipeline):
+        llm_model = "claude-haiku-5-5"
+
+        def __init__(self):
+            super().__init__()
+            self.asked = []
+            self.llm = type(
+                "L",
+                (),
+                {
+                    "chat": lambda s, m, model: (
+                        '{"query": "CLB Nhà Sáng Tạo Game PTIT (GCC) tuyển khi nào?"}'
+                    )
+                },
+            )()
+
+        def retrieve(self, query):
+            self.asked.append(query)
+            return super().retrieve(query)
+
+        def stream_answer(self, query, context):
+            self.asked.append(query)
+            return super().stream_answer(query, context)
+
+    p = Recording()
+    events = list(ask_events(p, "the con gcc thi sao", HISTORY))
+    assert (
+        p.asked == ["CLB Nhà Sáng Tạo Game PTIT (GCC) tuyển khi nào?"] * 2
+    )  # tìm và trả lời bằng câu đầy đủ
+    assert events[0]["followup"] is True and events[0]["rewritten"] == p.asked[0]
+    # không có lịch sử → không viết lại theo ngữ cảnh
+    p2 = Recording()
+    events = list(ask_events(p2, "clb mm tuyen tv khi nao"))
+    assert p2.asked[0] == "clb mm tuyen tv khi nao" and events[0]["followup"] is False
+
+
+def test_with_history_every_question_is_condensed_without_history_none_is():
+    """Không đoán "câu nối tiếp" bằng luật: có lịch sử là haiku viết lại (câu tự đủ nghĩa thì chỉ được thêm dấu)."""
+
+    class Counting(FakePipeline):
+        llm_model = "claude-haiku-5-5"
+
+        def __init__(self):
+            super().__init__()
+            self.condense_calls = 0
+            outer = self
+
+            class L:
+                def chat(self, messages, model):
+                    outer.condense_calls += 1
+                    return '{"query": "CLB Nhà Sáng Tạo Game PTIT (GCC) có phòng riêng không?"}'
+
+            self.llm = L()
+
+    p = Counting()
+    list(
+        ask_events(p, "GCC có không?", HISTORY)
+    )  # có tên CLB, không có từ nối: vẫn phải hiểu theo ngữ cảnh
+    list(ask_events(p, "GCC có phòng riêng không?"))  # không có lịch sử: không gọi
+    assert p.condense_calls == 1
+
+
+def test_condense_ignores_explanations_and_takes_json_query_only():
+    """Lỗi thật khi chạy thử: haiku trả về lời giải thích thay vì chỉ câu hỏi → không được dùng nguyên văn."""
+    from s2b_rag.web.memory import parse_condensed
+
+    messy = (
+        'Câu hỏi mới: "GCC có không?" Đây là câu hỏi nối tiếp, cần thay "GCC" bằng tên đầy đủ và làm rõ ý hỏi: '
+        "CLB Nhà Sáng Tạo Game PTIT có phòng riêng để chụp ảnh không."
+    )
+    assert parse_condensed(messy) is None  # không có JSON → giữ câu gốc
+    wrapped = 'Đây là câu viết lại:\n```json\n{"query": "CLB Nhà Sáng Tạo Game PTIT có phòng riêng không?"}\n```'
+    assert parse_condensed(wrapped) == "CLB Nhà Sáng Tạo Game PTIT có phòng riêng không?"
+    assert parse_condensed('{"query": ""}') is None and parse_condensed("{hỏng") is None

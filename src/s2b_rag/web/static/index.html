@@ -216,6 +216,9 @@ $("input").addEventListener("input", (e) => {
 });
 
 let busy = false;
+// Memory ngắn hạn: 2 lượt hỏi đáp gần nhất (chỉ trong trang; tải lại trang = cuộc trò chuyện mới).
+// Server dùng để hiểu câu nối tiếp như "thế còn GCC thì sao?".
+let history = [];
 
 async function ask(raw) {
   const query = raw.trim();
@@ -229,7 +232,8 @@ async function ask(raw) {
   const bot = el("div", { class: "msg bot" });
   const status = el("div", { class: "status" });
   status.append(el("span", { class: "pulse" }),
-    el("span", {}, hasDiacritics(query) ? "Đang tìm tài liệu" : "Đang thêm dấu cho câu hỏi và tìm tài liệu"));
+    el("span", {}, history.length ? "Đang hiểu câu hỏi và tìm tài liệu"
+      : hasDiacritics(query) ? "Đang tìm tài liệu" : "Đang thêm dấu cho câu hỏi và tìm tài liệu"));
   bot.append(status);
   $("thread").append(userMsg, bot);
   scrollDown();
@@ -237,7 +241,7 @@ async function ask(raw) {
   let answer = null;
   try {
     const res = await fetch("/api/ask", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query }),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, history }),
     });
     if (!res.ok) throw new Error(`Máy chủ trả lỗi ${res.status}`);
     // NDJSON: đọc từng mẩu, gom vào bộ đệm, mỗi dòng trọn vẹn là một sự kiện JSON
@@ -270,6 +274,7 @@ function handle(ev, bot, status, answer, query) {
   } else if (ev.type === "retrieval") {
     status.lastChild.textContent = "Đang soạn câu trả lời";
     if (ev.rewritten) bot.append(rewriteLine(ev.rewritten));
+    bot.asked = ev.rewritten;
     bot.append(foundLine(ev.sources, ev.seconds));
     bot.sources = ev.sources;
     answer = el("p", { class: "answer typing" });
@@ -281,7 +286,7 @@ function handle(ev, bot, status, answer, query) {
     status.remove();
     answer.classList.remove("typing");
     answer.textContent = ev.answer;  // bản đã hậu xử lý, giống hệt bài nộp
-    if (ev.refusal) bot.append(suggestButtons());  // tài liệu không có thông tin: gợi ý câu nên hỏi
+    history = [...history, { q: bot.asked || query, a: ev.answer }].slice(-2);  // nhớ câu đã hiểu, không phải câu gõ tắt
     const t = ev.timings;
     bot.append(el("div", { class: "meta" },
       `Tìm tài liệu ${sec(t.retrieval)}, chữ đầu tiên sau ${sec(t.first_token)}, tổng ${sec(t.total)}`));
