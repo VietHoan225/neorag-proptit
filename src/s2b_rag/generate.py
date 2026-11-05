@@ -394,3 +394,67 @@ def postprocess(answer: str) -> str:
     if lines:
         joined = f"{joined} {lines[-1]}".strip()
     return _SPACES.sub(" ", joined).strip()
+
+
+class AnswerStreamFilter:
+    """Chatbot: lọc từng mẩu chữ haiku stream ra, chỉ cho hiện phần câu trả lời.
+
+    - Định dạng A (`wait_head=True`): giữ lại toàn bộ phần "Ý HỎI ... | NGUỒN: ..." cho tới khi gặp "TRẢ LỜI:".
+    - Mọi định dạng: chặn dòng "NGUỒN: ..." (R9 ghi ở cuối, A đôi khi thêm). Một dòng chỉ bị giữ lại khi phần đầu
+      của nó còn có thể là "NGUỒN"; dòng bắt đầu bằng chữ khác được cho hiện ngay, nên chữ vẫn chạy dần.
+    Bản cuối cùng hiển thị vẫn là `finish_answer` (cùng hậu xử lý với bài nộp); bộ lọc chỉ để người dùng không thấy
+    phần nội bộ trong lúc chờ.
+    """
+
+    _KEYWORD = "NGUỒN"
+
+    def __init__(self, wait_head: bool = True):
+        self.started = not wait_head
+        self.pending = ""  # trước "TRẢ LỜI:" (khi chờ), hoặc đầu dòng hiện tại chưa quyết định được
+        self.live = False  # dòng hiện tại đã chắc chắn là câu trả lời → cho hiện thẳng
+        self.emitted = False
+
+    def feed(self, piece: str) -> str:
+        if not self.started:
+            self.pending += piece
+            heads = list(_ANSWER_HEAD.finditer(self.pending))
+            if not heads:
+                return ""
+            rest, self.pending, self.started = self.pending[heads[-1].end() :], "", True
+            return self._visible(rest)
+        return self._visible(piece)
+
+    def finish(self) -> str:
+        """Phần còn giữ lại khi stream kết thúc (dòng cuối không xuống dòng)."""
+        if not self.started or not self.pending or _SOURCES.match(self.pending):
+            return ""
+        return self._out(self.pending)
+
+    def _visible(self, text: str) -> str:
+        out = []
+        for part in re.split(r"(\n)", text):
+            if part == "\n":
+                if self.live:
+                    out.append("\n")
+                elif self.pending.strip() and not _SOURCES.match(self.pending):
+                    out.append(self.pending + "\n")
+                self.pending, self.live = "", False
+            elif self.live:
+                out.append(part)
+            elif part:
+                self.pending += part
+                probe = self.pending.lstrip(" \t*_#").upper()
+                if (
+                    probe
+                    and not probe.startswith(self._KEYWORD)
+                    and not self._KEYWORD.startswith(probe)
+                ):
+                    out.append(self.pending)
+                    self.pending, self.live = "", True
+        return self._out("".join(out))
+
+    def _out(self, text: str) -> str:
+        if not self.emitted:
+            text = text.lstrip()
+            self.emitted = bool(text)
+        return text

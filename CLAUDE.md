@@ -58,4 +58,4 @@ Response Relevancy, 1 − Noise Sensitivity, Abstention). Groundedness tính tr�
 ## Trạng thái hiện tại
 - Baseline BTC: train retrieval 0.72, SP 0.74, ROUGE-L 0.43; public 52.40 (ngưỡng 53.40).
 - **Tiến độ và bản đồ file: trong `docs/plan.md`** (mục "Tiến độ", "Bản đồ file của mình"). Đọc hai mục đó đầu mỗi phiên.
-- Đang làm: đã chốt `S2BPipeline` = **A5** (public #9 **89.15**: câu trả lời A2 + gộp nguồn của 2 lần haiku đọc, retrieval 93.93; mỗi câu 2 lần gọi) trên nhánh `feature/casual-eval`. Trước đó A2 #7 88.17; A3, A4 bỏ. Tiếp theo: tìm thêm điểm retrieval (mục tiêu 90), PR vào develop + merge `feature/chatbot` (chatbot chỉ cần lần gọi 1, phải ẩn phần Ý HỎI/NGUỒN), README/ADR/slide; code freeze 07/11.
+- Đang làm: `S2BPipeline` = **A5** (public #9 **89.15**) đã vào `develop` (PR #6). Nhánh `feature/chatbot-a5`: ghép chatbot web (Starlette, `python -m s2b_rag.web`) vào pipeline A5 — chỉ gọi haiku lần 1, giấu phần Ý HỎI/NGUỒN khi stream, `run()` không đổi (tái lập #9 42/42). Chờ chạy thử. Tiếp theo: README + slide; code freeze 07/11; private 08/11 (42 câu).

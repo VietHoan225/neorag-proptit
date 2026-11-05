@@ -486,3 +486,79 @@ def test_a6_third_read_only_fills_free_top5_slots():
     assert out.answer == "Câu trả lời lần một."
     # chính [4] → phụ [9] → tầng 3 chỉ thêm 17 (4 đã có) → rồi retriever
     assert out.retrieved_ids[:5] == [4, 9, 17, 1, 2] and len(out.retrieved_ids) == 10
+
+
+# ---- Chatbot: retrieve / stream_answer / finish_answer (không đụng run()) ----
+
+
+class FakeStreamClient:
+    """Client giả kiểu openai: `chat.completions.create(..., stream=True)` nhả từng mẩu chữ."""
+
+    def __init__(self, pieces):
+        self.pieces, self.calls = pieces, []
+        self.chat = self.completions = self
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+
+        def chunk(text):
+            delta = type("Delta", (), {"content": text})()
+            return type("Chunk", (), {"choices": [type("Choice", (), {"delta": delta})()]})()
+
+        return [chunk(p) for p in self.pieces] + [type("Chunk", (), {"choices": []})()]
+
+
+def _stream(pieces, wait_head=True):
+    from s2b_rag.generate import AnswerStreamFilter
+
+    f = AnswerStreamFilter(wait_head)
+    return "".join(f.feed(p) for p in pieces) + f.finish()
+
+
+def test_stream_filter_hides_aspects_and_sources_even_when_split_mid_word():
+    pieces = ["Ý HỎI:\nÝ 1: x | NGU", "ỒN: 4\nTRẢ L", "ỜI:\nCó. CLB ", "đạt giải.\nNGU", "ỒN: 4"]
+    assert _stream(pieces) == "Có. CLB đạt giải.\n"
+    assert (
+        _stream(["Trả lời ", "một dòng.\n", "NGUỒN: 1, 2"], wait_head=False)
+        == "Trả lời một dòng.\n"
+    )
+    assert (
+        _stream(["Ý HỎI:\nÝ 1: x | NGUỒN: 4\n", "quên TRẢ LỜI"]) == ""
+    )  # lỗi định dạng: không lộ gì
+    # câu bắt đầu bằng "Nguồn" nhưng không phải dòng nguồn vẫn được hiện
+    assert _stream(
+        ["Ý HỎI:\nÝ 1: x | NGUỒN: 4\n**TRẢ LỜI:**\n", "Nguồn tin cho biết CLB tuyển."]
+    ) == ("Nguồn tin cho biết CLB tuyển.")
+
+
+def test_chatbot_stream_matches_submission_answer_and_prompt():
+    from s2b_rag.pipeline import S2BPipeline
+
+    raw = (
+        "Ý HỎI:\nÝ 1: x | NGUỒN: 7\nÝ 2: y | NGUỒN: 3, 12\nTRẢ LỜI:\n"
+        "**Có**, CLB có phòng riêng. Tài liệu không ghi giờ mở cửa."
+    )
+    llm = FakeLLM(lambda m: raw)
+    docs = [Document(i, "CLB Lập Trình PTIT", "Chủ đề", f"Đoạn {i}.") for i in range(1, 26)]
+    pipeline = S2BPipeline(retriever="bm25_noaccent_bi", llm=llm)
+    pipeline.retriever = _FixedRanker(list(range(1, 26)))
+    pipeline.index(docs)
+    pipeline.stream_client = client = FakeStreamClient([raw[:9], raw[9:40], raw[40:70], raw[70:]])
+
+    expected = pipeline.run("câu hỏi").answer  # bài nộp
+    r = pipeline.retrieve("câu hỏi")
+    stream = pipeline.stream_answer("câu hỏi", r.context)
+    visible = "".join(stream)
+    answer, cited = pipeline.finish_answer(stream.raw, r.context)
+
+    assert len(r.context) == 20 and len(r.docs) == 10  # haiku đọc 20 đoạn như bài nộp
+    assert (
+        "Ý HỎI" not in visible and "NGUỒN" not in visible and visible.lstrip("*").startswith("Có")
+    )
+    assert answer == expected == "Có, CLB có phòng riêng."  # cùng hậu xử lý G2 + A2 với bài nộp
+    assert cited == [7, 3, 12]
+    (call,) = client.calls
+    assert call["messages"] == llm.calls[0]  # cùng prompt với lần gọi 1 của bài nộp
+    assert (
+        call["stream"] is True and call["model"] == "claude-haiku-5-5" and "temperature" not in call
+    )

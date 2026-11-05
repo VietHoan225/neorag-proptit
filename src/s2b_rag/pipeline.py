@@ -15,6 +15,10 @@ bài. Lịch sử: S2BPipelineR9 (#4) → S2BPipelineCtx20 → S2BPipelineE2 (#5
 
 from __future__ import annotations
 
+import time
+from collections.abc import Iterator
+from dataclasses import dataclass
+
 from neorag.data import Document
 from neorag.llm import LLMClient
 from neorag.pipelines import RAGOutput, RAGPipeline
@@ -26,6 +30,7 @@ from s2b_rag.generate import (
     SYSTEM_PROMPT_A,
     SYSTEM_PROMPT_A4,
     SYSTEM_PROMPT_E2,
+    AnswerStreamFilter,
     build_messages,
     drop_tail_hedges,
     keep_used_sources,
@@ -41,6 +46,40 @@ from s2b_rag.retrieval.dense import CACHE_PATH
 from s2b_rag.retrieval.presets import DEFAULT, RETRIEVERS
 
 LLM_MODEL = "claude-haiku-5-5"  # LLM duy nhất được phép; KHÔNG truyền temperature
+
+
+@dataclass
+class Retrieval:
+    """Kết quả tầng truy xuất của một câu hỏi (chatbot hiển thị nguồn trước khi có câu trả lời)."""
+
+    docs: list[Document]  # n_retrieved đoạn đầu, theo hạng retriever
+    context: list[Document]  # n_context đoạn đầu, đưa vào prompt
+    rewritten: str | None  # câu haiku viết lại (R7), None nếu không viết lại
+    seconds: float  # thời gian truy xuất (gồm cả lần gọi viết lại nếu có)
+
+    @property
+    def ids(self) -> list[int]:
+        return [d.id for d in self.docs]
+
+
+class AnswerStream:
+    """Duyệt qua → các mẩu chữ được phép hiện; duyệt xong → `.raw` là phản hồi đầy đủ (cả phần bị giấu)."""
+
+    def __init__(self, chunks, stream_filter: AnswerStreamFilter):
+        self._chunks, self._filter, self._parts = chunks, stream_filter, []
+
+    @property
+    def raw(self) -> str:
+        return "".join(self._parts)
+
+    def __iter__(self) -> Iterator[str]:
+        for chunk in self._chunks:
+            if chunk.choices and (delta := chunk.choices[0].delta.content):
+                self._parts.append(delta)
+                if visible := self._filter.feed(delta):
+                    yield visible
+        if tail := self._filter.finish():
+            yield tail
 
 
 class S2BPipelineR9(RAGPipeline):
@@ -132,6 +171,56 @@ class S2BPipelineR9(RAGPipeline):
         """Bổ sung nguồn trước khi xếp id; mặc định giữ nguyên (A5 gộp nguồn của lần haiku đọc thứ 2)."""
         return tiers
 
+    # ---- Chatbot (`python -m s2b_rag.web`). KHÔNG dùng trong `run()`: bài nộp không đổi. ----
+    # Chatbot chỉ gọi haiku lần 1 (câu trả lời); lần đọc thứ 2 của A5 chỉ phục vụ id nộp bài nên bỏ để nhanh.
+    streams_aspects = False  # định dạng A: phải giấu phần "Ý HỎI" trước "TRẢ LỜI:" khi stream
+    stream_client = None  # openai.OpenAI, tạo khi cần; test gán client giả
+
+    def retrieve(self, query: str) -> Retrieval:
+        """Cùng retrieval với `run()`: n_retrieved đoạn để hiển thị, n_context đoạn đưa vào prompt."""
+        start = time.perf_counter()
+        ranked = [doc_id for doc_id, _ in self.retriever.search(query)]
+        seconds = time.perf_counter() - start
+        return Retrieval(
+            docs=[self.docs[i] for i in ranked[: self.n_retrieved]],
+            context=[self.docs[i] for i in ranked[: self.n_context]],
+            rewritten=self._last_rewrite(),
+            seconds=seconds,
+        )
+
+    def _last_rewrite(self) -> str | None:
+        """Câu haiku viết lại (thêm dấu) ở lần search vừa rồi, tìm qua các tầng lồng nhau (`base`)."""
+        layer = self.retriever
+        while layer is not None:
+            if (rw := getattr(layer, "last_rewrite", None)) is not None:
+                return rw.query
+            layer = getattr(layer, "base", None)
+        return None
+
+    def stream_answer(self, query: str, context: list[Document]) -> AnswerStream:
+        """Gọi haiku lần 1 với CÙNG prompt như `run()` (`stream=True`), chỉ cho hiện phần câu trả lời.
+
+        Không qua cache của LLMClient (cache cần cả câu trả lời) → mỗi câu hỏi là một lần gọi. Không truyền temperature.
+        """
+        if self.stream_client is None:
+            from openai import OpenAI
+
+            self.stream_client = (
+                OpenAI()
+            )  # đọc OPENAI_API_KEY / OPENAI_BASE_URL (neorag.llm đã nạp .env)
+        chunks = self.stream_client.chat.completions.create(
+            model=self.llm_model,
+            messages=build_messages(query, context, self.system_prompt),
+            stream=True,
+        )
+        return AnswerStream(chunks, AnswerStreamFilter(wait_head=self.streams_aspects))
+
+    def finish_answer(self, raw: str, context: list[Document]) -> tuple[str, list[int]]:
+        """Từ phản hồi đầy đủ: (câu trả lời đã hậu xử lý y như `run()`, id các đoạn haiku đã trích)."""
+        answer, tiers = self.parse_reply(raw, [d.id for d in context])
+        answer = self.finalize_answer(postprocess(answer) or FALLBACK_ANSWER)
+        return answer, list(dict.fromkeys(d for tier in tiers for d in tier))
+
 
 class S2BPipelineCtx20(S2BPipelineR9):
     """Thí nghiệm E1: haiku đọc 20 đoạn (nộp vẫn 10 id). Trần đo trên dev_casual: 0.985 (10) → 0.997 (20).
@@ -160,6 +249,7 @@ class S2BPipelineA(S2BPipelineE2):
     Chạy: `--pipeline s2b_rag.pipeline:S2BPipelineA`. So với `S2BPipelineE2` (bài nộp #5, 87.02)."""
 
     retry_note = RETRY_NOTE_A
+    streams_aspects = True  # chatbot: giấu phần "Ý HỎI" khi stream
 
     def __init__(self, **kwargs):
         kwargs.setdefault("system_prompt", SYSTEM_PROMPT_A)
