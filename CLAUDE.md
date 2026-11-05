@@ -58,4 +58,4 @@ Response Relevancy, 1 − Noise Sensitivity, Abstention). Groundedness tính tr�
 ## Trạng thái hiện tại
 - Baseline BTC: train retrieval 0.72, SP 0.74, ROUGE-L 0.43; public 52.40 (ngưỡng 53.40).
 - **Tiến độ và bản đồ file: trong `docs/plan.md`** (mục "Tiến độ", "Bản đồ file của mình"). Đọc hai mục đó đầu mỗi phiên.
-- Đang làm: R10 `hybrid_r10` (quota CLB sau reranker + "ba CLB"), nhánh `feature/multi-club-quota`. Tiếp theo: G5 sửa prompt giảm Noise (chờ duyệt ~0.09 USD), rồi chatbot demo.
+- Đang làm: đã chốt `S2BPipeline` = **A5** (public #9 **89.15**: câu trả lời A2 + gộp nguồn của 2 lần haiku đọc, retrieval 93.93; mỗi câu 2 lần gọi) trên nhánh `feature/casual-eval`. Trước đó A2 #7 88.17; A3, A4 bỏ. Tiếp theo: tìm thêm điểm retrieval (mục tiêu 90), PR vào develop + merge `feature/chatbot` (chatbot chỉ cần lần gọi 1, phải ẩn phần Ý HỎI/NGUỒN), README/ADR/slide; code freeze 07/11.

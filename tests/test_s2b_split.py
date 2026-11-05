@@ -43,3 +43,29 @@ def test_without_accents_only_changes_query():
     (out,) = without_accents([row])
     assert out == {**row, "query": "Dang ky o dau?"}
     assert row["query"] == "Đăng ký ở đâu?"  # không sửa dữ liệu gốc
+
+
+def test_casualize_lowercases_abbreviates_and_strips_accents():
+    import random
+
+    from s2b_rag.eval.split import casualize
+
+    class Always(random.Random):  # luôn viết tắt, luôn chọn dạng đầu tiên
+        def random(self):
+            return 0.0
+
+        def choice(self, seq):
+            return seq[0]
+
+    assert casualize("Em có được vào Câu lạc bộ không?", Always()) == "e co dc vao clb ko"
+    # "em" nằm trong từ khác thì không bị thay
+    assert casualize("Kem", Always()) == "kem"
+
+
+def test_casual_is_deterministic_and_only_changes_query():
+    from s2b_rag.eval.split import casual
+
+    rows = _train()[:20]
+    out = casual(rows)
+    assert out == casual(rows)
+    assert all({**o, "query": r["query"]} == r for o, r in zip(out, rows, strict=True))

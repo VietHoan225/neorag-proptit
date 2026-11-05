@@ -7,6 +7,7 @@ Chạy: python -m s2b_rag.eval.split
 - Trong mỗi type, chọn cách đều theo danh sách đã sắp theo `club` (systematic sampling),
   nên tỉ lệ CLB trong holdout cũng xấp xỉ train.
 - Sinh thêm bản bỏ dấu của mỗi tập (`*_noaccent.jsonl`) để mô phỏng câu hỏi kiểu public.
+- Sinh thêm bản đời thường (`*_casual.jsonl`): bỏ dấu + teencode + bỏ "?" — sát public hơn bản bỏ dấu.
 - Seed cố định: chạy lại luôn ra đúng cách chia cũ.
 """
 
@@ -14,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import random
+import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -54,6 +56,44 @@ def without_accents(rows: list[dict]) -> list[dict]:
     return [{**r, "query": strip_accents(r["query"])} for r in rows]
 
 
+# Teencode tiếng Việt phổ biến (dạng chuẩn -> dạng viết tắt), KHÔNG lấy từ câu hỏi public.
+# Cố ý gồm cả dạng hệ thống đã biết (ko, dc, hv... có trong textnorm.ABBREVIATIONS) lẫn dạng chưa biết
+# (e, mk, cx, trc, ng, bh...), để đo được độ bền với viết tắt lạ — giống tình huống private test.
+CASUAL_FORMS = {
+    "câu lạc bộ": ["clb"], "học viện": ["hv"], "thành viên": ["tv"], "như thế nào": ["ntn"],
+    "bao nhiêu": ["bn"], "bây giờ": ["bh"], "không": ["ko", "k"], "được": ["dc"],
+    "gì": ["j"], "em": ["e"], "mình": ["mk", "mik"], "với": ["vs"], "vậy": ["v", "z"],
+    "cũng": ["cx"], "trước": ["trc"], "người": ["ng"], "rồi": ["r"], "biết": ["bt"],
+    "nhiều": ["nhiu"], "mọi người": ["mn"],
+}  # fmt: skip
+_CASUAL_RE = re.compile(
+    r"\b(" + "|".join(sorted(map(re.escape, CASUAL_FORMS), key=len, reverse=True)) + r")\b"
+)
+P_ABBREVIATE = 0.7  # người thật không viết tắt mọi chỗ
+
+
+def casualize(query: str, rng: random.Random) -> str:
+    """Mô phỏng tin nhắn đời thường: chữ thường, viết tắt ngẫu nhiên, bỏ dấu câu cuối, bỏ dấu thanh.
+
+    "Em có được vào CLB không?" -> "e co dc vao clb ko"
+    """
+    text = query.lower()
+    text = _CASUAL_RE.sub(
+        lambda m: (
+            rng.choice(CASUAL_FORMS[m.group(1)]) if rng.random() < P_ABBREVIATE else m.group(1)
+        ),
+        text,
+    )
+    text = text.rstrip(" ?.!")
+    return strip_accents(text)
+
+
+def casual(rows: list[dict], seed: int = SEED) -> list[dict]:
+    """Bản sao các câu hỏi với `query` kiểu đời thường; ground truth giữ nguyên. Cố định theo seed."""
+    rng = random.Random(seed)
+    return [{**r, "query": casualize(r["query"], rng)} for r in rows]
+
+
 def _table(title: str, dev: Counter, holdout: Counter) -> str:
     keys = sorted(set(dev) | set(holdout), key=lambda k: -(dev[k] + holdout[k]))
     width = max(len(title), *(len(str(k)) for k in keys))
@@ -81,6 +121,8 @@ def main(argv: list[str] | None = None) -> None:
         "holdout": holdout,
         "dev_noaccent": without_accents(dev),
         "holdout_noaccent": without_accents(holdout),
+        "dev_casual": casual(dev, args.seed),
+        "holdout_casual": casual(holdout, args.seed),
     }
     for name, data in files.items():
         write_jsonl(args.out / f"{name}.jsonl", data)
