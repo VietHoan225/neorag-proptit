@@ -84,12 +84,12 @@
   .rewrite { font-size: 14px; color: var(--muted); margin: 6px 0 0; }
   .rewrite q { color: var(--ink); quotes: "“" "”"; }
 
-  /* Dải nguồn: 10 ô theo thứ hạng, màu theo CLB; ô đặc = đoạn đưa vào prompt */
-  .strip { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; margin: 12px 0 4px; }
-  .strip span { height: 8px; border-radius: 2px; background: var(--c); transform-origin: left;
-                animation: grow .35s ease-out both; animation-delay: calc(var(--i) * 30ms); }
-  .strip span.out { background: none; box-shadow: inset 0 0 0 1.5px var(--c); }
-  @keyframes grow { from { transform: scaleX(0); } }
+  /* Dòng "Đã xem N đoạn gần nghĩa nhất": đếm theo CLB, mỗi CLB một tag màu (thay cho dải vạch khó hiểu) */
+  .found { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 12px 0 4px;
+           font-size: 13px; color: var(--muted); }
+  .tag { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 999px;
+         border: 1px solid var(--line); color: var(--ink); font-size: 12px; white-space: nowrap; }
+  .tag::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
 
   .answer { margin: 10px 0 0; white-space: pre-wrap; max-width: 70ch; }
   .answer.typing::after { content: ""; display: inline-block; width: 7px; height: 1em; margin-left: 2px;
@@ -99,15 +99,15 @@
            padding: 4px 12px; cursor: pointer; }
 
   .meta { font-size: 13px; color: var(--muted); margin-top: 12px; }
-  details { margin-top: 8px; font-size: 14px; }
-  summary { cursor: pointer; color: var(--muted); }
-  .sources { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
-  .sources li { border-left: 3px solid var(--c); padding: 4px 0 4px 10px; }
-  .sources li.out { opacity: .65; }
-  .sources li.cited b::after { content: " · được dùng để trả lời"; color: var(--muted); font-weight: 400; }
-  .sources b { font-weight: 500; }
-  .sources span { color: var(--muted); }
-  .sources p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+  /* Nguồn: đoạn được dùng để trả lời hiện sẵn (mỗi đoạn một dòng, bấm để xem trích đoạn); đoạn khác thu gọn */
+  .cites { margin-top: 10px; font-size: 13px; }
+  .cites h3 { margin: 0 0 4px; font-size: 12px; font-weight: 500; color: var(--muted); }
+  .cites > details > summary { cursor: pointer; color: var(--muted); margin-top: 6px; }
+  .src { border-left: 3px solid var(--c); padding: 2px 0 2px 8px; margin: 4px 0; }
+  .src summary { cursor: pointer; list-style: none; color: var(--ink); }
+  .src summary::-webkit-details-marker { display: none; }
+  .src summary span { color: var(--muted); }
+  .src p { margin: 4px 0 2px; color: var(--muted); }
 
   form { border-top: 1px solid var(--line); background: var(--bg);
          padding: 12px max(16px, calc(50% - 380px)) 16px; display: flex; gap: 8px; }
@@ -125,7 +125,7 @@
 <body>
 <header>
   <h1>Hỏi về S2B</h1>
-  <ul class="legend" aria-label="Màu của từng CLB trong dải nguồn">
+  <ul class="legend" aria-label="Màu của từng CLB">
     <li><span class="swatch" style="--c: var(--proptit)"></span>Lập Trình PTIT</li>
     <li><span class="swatch" style="--c: var(--mpc)"></span>Multimedia PTIT</li>
     <li><span class="swatch" style="--c: var(--gcc)"></span>GCC</li>
@@ -270,13 +270,7 @@ function handle(ev, bot, status, answer, query) {
   } else if (ev.type === "retrieval") {
     status.lastChild.textContent = "Đang soạn câu trả lời";
     if (ev.rewritten) bot.append(rewriteLine(ev.rewritten));
-    const strip = el("div", { class: "strip", role: "img",
-      "aria-label": `Tìm được ${ev.sources.length} đoạn trong ${sec(ev.seconds)}` });
-    ev.sources.forEach((s, i) => strip.append(el("span", {
-      title: `${club(s.club).name}: ${s.topic}`,
-      style: `--c: ${club(s.club).color}; --i: ${i}`,
-    })));
-    bot.append(strip);
+    bot.append(foundLine(ev.sources, ev.seconds));
     bot.sources = ev.sources;
     answer = el("p", { class: "answer typing" });
     bot.append(answer);
@@ -305,18 +299,40 @@ function rewriteLine(text) {
   return p;
 }
 
-function sourceList(sources) {
-  const d = el("details");
-  const cited = sources.filter((s) => s.cited).length;
-  d.append(el("summary", {}, `Xem ${sources.length} đoạn nguồn (${cited} đoạn được dùng để trả lời)`));
-  const ol = el("ol", { class: "sources" });
-  for (const s of sources) {
-    const li = el("li", { class: s.cited ? "cited" : "out", style: `--c: ${club(s.club).color}` });
-    li.append(el("b", {}, club(s.club).name), el("span", {}, `, ${s.topic}, đoạn ${s.id}`), el("p", {}, s.snippet));
-    ol.append(li);
-  }
-  d.append(ol);
+// "Đã xem 10 đoạn gần nghĩa nhất (1,2 giây): [Lập Trình PTIT 6] [GCC 3] [Multimedia PTIT 1]".
+// Retriever luôn trả đủ 10 đoạn theo độ gần nghĩa, nên có thể lẫn đoạn của CLB khác (vd "thành lập" của GCC);
+// haiku mới là bước chọn đoạn đúng → các đoạn đó hiện ở mục "Nguồn được dùng để trả lời".
+function foundLine(sources, seconds) {
+  const counts = new Map();
+  for (const s of sources) counts.set(s.club, (counts.get(s.club) || 0) + 1);
+  const line = el("div", { class: "found" }, `Đã xem ${sources.length} đoạn gần nghĩa nhất (${sec(seconds)}):`);
+  for (const [c, n] of counts) line.append(el("span", { class: "tag", style: `--c: ${club(c).color}` }, `${club(c).name} ${n}`));
+  return line;
+}
+
+function sourceItem(s) {
+  const d = el("details", { class: "src", style: `--c: ${club(s.club).color}` });
+  const sum = el("summary", {}, club(s.club).name);
+  sum.append(el("span", {}, ` · ${s.topic} · đoạn ${s.id}`));
+  d.append(sum, el("p", {}, s.snippet));
   return d;
+}
+
+// Đoạn haiku đã dùng để trả lời: hiện sẵn, mỗi đoạn một dòng. Các đoạn khác tìm được: thu gọn.
+function sourceList(sources) {
+  const box = el("div", { class: "cites" });
+  const cited = sources.filter((s) => s.cited), rest = sources.filter((s) => !s.cited);
+  if (cited.length) {
+    box.append(el("h3", {}, `Nguồn được dùng để trả lời (${cited.length})`));
+    for (const s of cited) box.append(sourceItem(s));
+  }
+  if (rest.length) {
+    const more = el("details");
+    more.append(el("summary", {}, cited.length ? `Xem ${rest.length} đoạn gần nghĩa khác (không dùng để trả lời)` : `Xem ${rest.length} đoạn gần nghĩa nhất`));
+    for (const s of rest) more.append(sourceItem(s));
+    box.append(more);
+  }
+  return box;
 }
 
 function showError(bot, status, message, query) {
