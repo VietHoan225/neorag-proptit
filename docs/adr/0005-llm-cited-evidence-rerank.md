@@ -9,7 +9,8 @@
 - Ở các câu ≥ 2 ý bị thiếu đoạn, **6/8 đoạn thiếu đã nằm ở hạng 6–10**, tức lỗi xếp hạng chứ không phải không tìm
   thấy. Nguyên nhân: cross-encoder (ADR-0004) chấm từng đoạn riêng, nên các đoạn cùng nói về ý chính chiếm hết top-5.
 - Recall/MRR/NDCG chỉ tính @5. Groundedness lại đọc text của cả 10 id nộp. Được nộp tối đa 10 id.
-- Ngân sách 5 USD và độ trễ của chatbot → không muốn thêm lần gọi LLM.
+- Ngân sách 5 USD và độ trễ của chatbot → ban đầu ưu tiên R9/E1 không thêm lần gọi; A5 về sau chấp nhận thêm
+  một lần đọc nguồn cho bài nộp vì có số đo lợi ích (ADR-0008).
 
 ## Các phương án
 | # | Phương án | Lần gọi thêm | Kết quả / lý do |
@@ -23,6 +24,7 @@
 | 7 | Một prompt dặn "ghi mọi nguồn, kể đủ" (A4) | 0 | **Bỏ**: nguồn tốt hơn nhưng câu trả lời dài ra, SP tụt |
 | 8 | **Câu trả lời của lần đọc 1 + gộp nguồn của 2 lần đọc (lần 2 dùng prompt A4)** (A5) | +1/câu | Chọn (04/11) |
 | 9 | Như #8 + lần đọc thứ 3 (prompt E2) chỉ lấp ô top-5 còn trống (A6) | +2/câu | **Bỏ**: public đổi 3 câu, retrieval y hệt |
+| 10 | Thay prompt A4 ở lần đọc thứ 2 bằng prompt chỉ chọn nguồn | +1/câu như A5 | **Bỏ** (06/11): `dev_casual` 98.76 → 98.84, chỉ NDCG nhích; 4 câu tăng, 3 câu giảm |
 
 ## Quyết định
 Chọn **#4 + #5**:
@@ -34,7 +36,7 @@ retrieval (ADR-0003/0004) → 20 đoạn đầu vào prompt → haiku: câu tr�
 ```
 
 - **Vì sao hiệu quả:** haiku đọc cả câu hỏi và mọi đoạn cùng lúc, nên biết mỗi ý cần một đoạn, điều mà cross-encoder
-  không biết. Không thêm lần gọi nào.
+  không biết. Riêng R9/E1 không thêm lần gọi; A5 gọi thêm một lần để tăng độ phủ nguồn.
 - **Giữ thứ tự retriever giữa các đoạn được trích:** LLM chỉ quyết định đoạn **nào** vào top, không quyết định đoạn
   nào đứng đầu → MRR ít bị xáo trộn (dev_casual MRR 0.994).
 - **Cắt 10 id SAU khi đưa đoạn được trích lên (E1):** đoạn hạng 11–20 được trích vẫn vào được top-5. Khi chỉ đọc 10
@@ -63,9 +65,29 @@ retrieval (ADR-0003/0004) → 20 đoạn đầu vào prompt → haiku: câu tr�
   lời cũng kể nhiều (A4). Tách thành 2 lần đọc: lần 1 (prompt A) cho câu trả lời + nguồn, lần 2 (prompt A4) chỉ lấy
   nguồn; id = [đoạn chính của cả 2 lần] rồi [đoạn phụ]. Một luật cố định, không dùng gold. dev_casual chỉ +0.36 (gần
   trần) nhưng public retrieval 91.73 → 93.93 (+2.20, tất định), câu trả lời giống hệt #7 (42/42) → +0.98 điểm gốc.
+- **Prompt chỉ chọn nguồn (06/11):** giữ nguyên lần 1 và thứ hạng retriever, thay riêng prompt lần 2; 86/86 câu
+  trả lời giống A5. Trên `dev_casual` (84 câu có gold), Recall@5 98.21 và MRR@5 100 không đổi; NDCG@5
+  98.06 → 98.30, retrieval 98.76 → 98.84 (+0.08 điểm phần trăm). Top-5 đổi 15/86 câu, 4 tăng điểm,
+  3 giảm, 8 hòa. Mức tăng dưới ngưỡng thử tiếp, nên không chạy holdout hay public. 86 lần gọi haiku mới;
+  chi phí USD chưa đối chiếu trang usage.
+
+Prompt thử nguồn riêng (phần `TÀI LIỆU` và `CÂU HỎI` vẫn theo `build_messages`):
+
+```text
+Bạn chọn tài liệu làm bằng chứng để trả lời câu hỏi về cộng đồng S2B.
+Chỉ dựa vào TÀI LIỆU và CÂU HỎI được cung cấp. Chia câu hỏi thành từng ý được hỏi; giữ đúng CLB,
+người/vai trò và mốc thời gian. Với mỗi ý, ghi số hiệu các đoạn trực tiếp chứa thông tin cần để trả lời.
+Đặt đoạn trả lời trực tiếp nhất đầu tiên; ghi thêm các đoạn khác khi chúng chứa phần thông tin cần thiết
+cho cùng ý. Không chọn đoạn chỉ cùng chủ đề nhưng không chứng minh câu trả lời. Nếu tài liệu không trả lời
+được ý nào thì ghi NGUỒN: không cho ý đó. Không viết câu trả lời, không suy đoán, không giải thích.
+Chỉ xuất các dòng theo đúng mẫu:
+Ý 1: <ý được hỏi> | NGUỒN: <id, id>
+Ý 2: <ý được hỏi> | NGUỒN: <id, id>
+```
 
 ## Hệ quả
-- Dễ hơn: câu nhiều ý không còn là điểm yếu lớn nhất của retrieval; chi phí mỗi câu vẫn là 1 lần gọi.
+- Dễ hơn: câu nhiều ý không còn là điểm yếu lớn nhất của retrieval; R9/E1 chỉ cần một lần gọi, còn cấu hình
+  nộp bài A5 cần hai lần gọi (chưa tính bước thêm dấu).
 - Khó hơn / rủi ro:
   - **Groundedness:** haiku đọc 20 đoạn nhưng chỉ nộp 10. Nếu nó dùng một đoạn mà không trích, đoạn đó bị cắt → judge
     thấy thông tin không có nguồn. Groundedness public 100 (#4) → 97.86 (#5); kiểm tra từ cache thấy đúng 1 câu

@@ -1,7 +1,7 @@
 # CLAUDE.md — NeoRAG Cup 2026 (bài dự thi cá nhân)
 
 Hệ thống RAG hỏi đáp về cộng đồng S2B (CLB Lập Trình PTIT, Multimedia PTIT, GCC).
-Repo tạo từ template của BTC (remote `upstream`). Tài liệu đề: `README.md`, `docs/rules.md`,
+Repo tạo từ template của BTC (remote `upstream`). README gốc BTC ở `docs/competition.md`; tài liệu đề: `docs/rules.md`,
 `docs/evaluation.md`, `docs/submission.md`, `docs/guide.md`, `docs/gateway.md`, `data/README.md`.
 
 ## Quy tắc bắt buộc
@@ -58,4 +58,4 @@ Response Relevancy, 1 − Noise Sensitivity, Abstention). Groundedness tính tr�
 ## Trạng thái hiện tại
 - Baseline BTC: train retrieval 0.72, SP 0.74, ROUGE-L 0.43; public 52.40 (ngưỡng 53.40).
 - **Tiến độ và bản đồ file: trong `docs/plan.md`** (mục "Tiến độ", "Bản đồ file của mình"). Đọc hai mục đó đầu mỗi phiên.
-- Đang làm: `S2BPipeline` = **A5** (public #9 **89.15**) đã vào `develop` (PR #6). Nhánh `feature/chatbot-a5`: ghép chatbot web (Starlette, `python -m s2b_rag.web`) vào pipeline A5 — chỉ gọi haiku lần 1, giấu phần Ý HỎI/NGUỒN khi stream, `run()` không đổi (tái lập #9 42/42). Chờ chạy thử. Tiếp theo: README + slide; code freeze 07/11; private 08/11 (42 câu).
+- Đang làm: `S2BPipeline` = **A5** (public #9 **89.15**) trên `develop`. Nhánh `feature/chatbot-a5`: chatbot đã thử thật; README mới và ADR đã bổ sung. Prompt lần đọc 2 chỉ chọn nguồn thử 06/11 trên dev_casual: retrieval 98.76 → 98.84, không đủ lợi ích → bỏ, `run()` nộp bài không đổi. Tiếp theo: chống sự cố ngày thi, slide và code freeze 07/11; private 08/11 (42 câu).
