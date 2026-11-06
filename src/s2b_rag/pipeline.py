@@ -30,10 +30,12 @@ from s2b_rag.generate import (
     SYSTEM_PROMPT_A,
     SYSTEM_PROMPT_A4,
     SYSTEM_PROMPT_E2,
+    SYSTEM_PROMPT_F,
     AnswerStreamFilter,
     build_messages,
     drop_tail_hedges,
     keep_used_sources,
+    mbr_select,
     merge_tiers,
     postprocess,
     promote_tiers,
@@ -334,6 +336,49 @@ class S2BPipelineA6(S2BPipelineA5):
         raw = self.llm.chat(build_messages(query, context, self.third_prompt), model=self.llm_model)
         _, third = split_sources(raw, allowed)
         return [*merged, third]
+
+
+class S2BPipelineMBR(S2BPipelineA5):
+    """Thí nghiệm MBR = A5 + chọn câu trả lời theo đồng thuận trong 4 bản haiku viết cho cùng 20 đoạn.
+
+    Lần đọc: A (câu trả lời + nguồn, như A5), A4 (nguồn, như A5; nay giữ cả câu trả lời), E2, F (chỉ lấy câu trả
+    lời). Mỗi bản qua cùng hậu xử lý A2 rồi `mbr_select` chọn 1. id nộp giữ cách gộp nguồn của A5 (top-5 như #9);
+    `keep_used_sources` với câu trả lời được chọn đổi đoạn nó dùng vào hạng 6–10 (Groundedness).
+    dev_casual (cache, 0 USD): SP 0.9359 → 0.9444, ROUGE-L 0.6375 → 0.6844. Ngày thi: 4 lần gọi/câu (+ thêm dấu).
+    Chatbot không dùng (chỉ đọc lần A). Chạy: `--pipeline s2b_rag.pipeline:S2BPipelineMBR`. So với A5 (#9)."""
+
+    candidate_prompts = (SYSTEM_PROMPT_E2, SYSTEM_PROMPT_F)
+
+    def run(self, query: str) -> RAGOutput:
+        self._others: list[str] = []
+        try:
+            return super().run(query)
+        finally:
+            self._others = []  # không để bản cũ lọt sang lần gọi sau (chatbot dùng finalize_answer)
+
+    def extra_tiers(
+        self, query: str, context: list[Document], allowed: list[int], tiers: list[list[int]]
+    ) -> list[list[int]]:
+        # lần đọc 2 y hệt A5 (cùng messages → trúng cache), nhưng giữ lại câu trả lời
+        raw = self.llm.chat(
+            build_messages(query, context, self.second_prompt), model=self.llm_model
+        )
+        answer4, second = split_aspects(raw, allowed)
+        others = [answer4]
+        for prompt in self.candidate_prompts:
+            raw = self.llm.chat(build_messages(query, context, prompt), model=self.llm_model)
+            parse = split_sources if prompt == SYSTEM_PROMPT_E2 else split_aspects
+            others.append(parse(raw, allowed)[0])
+        self._others = others
+        return merge_tiers(tiers, second)
+
+    def finalize_answer(self, answer: str) -> str:
+        first = super().finalize_answer(answer)
+        others = [
+            super(S2BPipelineMBR, self).finalize_answer(postprocess(a))
+            for a in getattr(self, "_others", [])
+        ]
+        return mbr_select([first, *others]) or first
 
 
 class S2BPipeline(S2BPipelineA5):

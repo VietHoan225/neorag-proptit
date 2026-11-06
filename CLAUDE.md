@@ -58,4 +58,4 @@ Response Relevancy, 1 − Noise Sensitivity, Abstention). Groundedness tính tr�
 ## Trạng thái hiện tại
 - Baseline BTC: train retrieval 0.72, SP 0.74, ROUGE-L 0.43; public 52.40 (ngưỡng 53.40).
 - **Tiến độ và bản đồ file: trong `docs/plan.md`** (mục "Tiến độ", "Bản đồ file của mình"). Đọc hai mục đó đầu mỗi phiên.
-- Đang làm: `S2BPipeline` = **A5** (public #9 **89.15**) trên `develop`. Nhánh `feature/chatbot-a5`: chatbot đã thử thật; README mới và ADR đã bổ sung. Prompt lần đọc 2 chỉ chọn nguồn thử 06/11 trên dev_casual: retrieval 98.76 → 98.84, không đủ lợi ích → bỏ, `run()` nộp bài không đổi. Tiếp theo: chống sự cố ngày thi, slide và code freeze 07/11; private 08/11 (42 câu).
+- Đang làm: **chốt `S2BPipeline` = A5** (public #9 **89.15**) cho private. Đã thử thêm 06/11: F (prompt chép nguyên văn + ví dụ, #11 89.01) và MBR chọn câu trả lời trong 4 bản A/A4/E2/F (`S2BPipelineMBR`, #12 89.26, gấp đôi số lần gọi, dưới ngưỡng 89.45) → giữ A5, DỪNG tối ưu điểm. Tiếp theo: chống sự cố ngày thi, slide, code freeze 07/11; private 08/11 (42 câu).

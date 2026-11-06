@@ -562,3 +562,57 @@ def test_chatbot_stream_matches_submission_answer_and_prompt():
     assert (
         call["stream"] is True and call["model"] == "claude-haiku-5-5" and "temperature" not in call
     )
+
+
+def test_mbr_select_picks_consensus_and_skips_empty():
+    from s2b_rag.generate import mbr_select
+
+    a = "CLB Lập Trình PTIT thành lập ngày 09/10/2011."
+    b = "CLB Lập Trình PTIT được thành lập ngày 09/10/2011."
+    odd = "GCC ra đời năm 2023 với nhiều hoạt động khác nhau."
+    assert mbr_select([odd, a, b]) in (a, b)  # bản lạc loài không được chọn
+    assert mbr_select(["", a]) == a and mbr_select([]) == ""
+    assert mbr_select([a, a]) == a  # hòa → giữ bản đứng trước
+
+
+def test_prompt_f_is_a_plus_verbatim_rule_and_examples():
+    from s2b_rag.generate import SYSTEM_PROMPT_A, SYSTEM_PROMPT_F
+
+    head, _, examples = SYSTEM_PROMPT_F.partition("\n\nVÍ DỤ CÁCH VIẾT PHẦN TRẢ LỜI")
+    rule = "\n- Ưu tiên chép nguyên cụm câu của tài liệu theo đúng thứ tự từ"
+    start = head.index(rule)
+    assert head[:start] + head[head.index("\n", start + 1) :] == SYSTEM_PROMPT_A
+    assert examples.count("Câu hỏi:") == 3 and "KHÔNG dùng thông tin trong ví dụ" in examples
+
+
+def test_mbr_reads_four_times_keeps_a5_ids_and_picks_consensus_answer():
+    from s2b_rag.generate import (
+        SYSTEM_PROMPT_A,
+        SYSTEM_PROMPT_A4,
+        SYSTEM_PROMPT_E2,
+        SYSTEM_PROMPT_F,
+    )
+    from s2b_rag.pipeline import S2BPipelineA5, S2BPipelineMBR
+
+    common = "CLB Lập Trình PTIT thành lập ngày 09/10/2011 với phương châm chia sẻ."
+    replies = {
+        SYSTEM_PROMPT_A: "Ý HỎI:\nÝ 1: x | NGUỒN: 4\nTRẢ LỜI:\nGCC ra đời năm 2023.",  # bản lạc loài
+        SYSTEM_PROMPT_A4: f"Ý HỎI:\nÝ 1: x | NGUỒN: 4, 9\nTRẢ LỜI:\n{common}",
+        SYSTEM_PROMPT_E2: f"{common}\nNGUỒN: 4",
+        SYSTEM_PROMPT_F: f"Ý HỎI:\nÝ 1: x | NGUỒN: 4\nTRẢ LỜI:\n{common}",
+    }
+    llm = FakeLLM(lambda m: replies[m[0]["content"]])
+    docs = [Document(i, "CLB Lập Trình PTIT", "Chủ đề", f"Đoạn {i}.") for i in range(1, 26)]
+    pipeline = S2BPipelineMBR(retriever="bm25_noaccent_bi", llm=llm)
+    pipeline.retriever = _FixedRanker(list(range(1, 26)))
+    pipeline.index(docs)
+    out = pipeline.run("câu hỏi")
+    assert len(llm.calls) == 4 and out.answer == common
+    assert out.retrieved_ids[:2] == [4, 9]  # nguồn gộp như A5
+    assert pipeline._others == []  # không rò sang lần sau
+    # chatbot (finish_answer) chỉ có bản A → không chọn MBR
+    assert pipeline.finish_answer(replies[SYSTEM_PROMPT_A], docs[:20])[0] == "GCC ra đời năm 2023."
+    assert (
+        type(S2BPipelineMBR.__mro__[1]) is type(S2BPipelineA5)
+        and S2BPipelineMBR.__mro__[1] is S2BPipelineA5
+    )
