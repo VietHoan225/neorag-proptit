@@ -58,7 +58,11 @@ flowchart LR
 | #5 | + haiku đọc 20 đoạn (E1), prompt bớt rào đón (E2) | 87.02 |
 | #6 | + nguồn theo từng ý "Ý HỎI" (A) | 87.36 |
 | #7 | + bỏ câu rào đón thừa bằng code (A2, 0 USD) | 88.17 |
-| **#9** | **+ gộp nguồn của 2 lần đọc (A5)** | **89.15** |
+| #9 | + gộp nguồn của 2 lần đọc (A5) | 89.15 |
+| #13 | + đoạn được cả 2 lần đọc chọn đứng đầu top‑5 (R11, 0 USD) | 89.42 |
+| #15 | + kiểm tra bằng chứng toàn corpus cho câu bị gắn cờ (R12), retrieval 94.50 → 94.82 | 89.36 (judge lệch, câu trả lời = #13) |
+| #16 | R12 + chọn câu trả lời đồng thuận MBR (0 USD) | 89.59 |
+| **#17** | **+ sinh lại câu trả lời khi R12 bổ sung đoạn, giữ nguồn câu trả lời dùng** | **89.99** (nộp lại 89.92) |
 
 Đã thử nhưng bỏ (có số liệu): A3 cắt rào đón mạnh hơn (#8, 87.88), A4 prompt "kể đủ" (trượt điều kiện trên dev),
 A6 lần đọc thứ 3 (#10, retrieval y hệt #9), A7 tìm lại theo từng ý (đoạn lấp mới chỉ 2.5% là gold). Judge của BTC

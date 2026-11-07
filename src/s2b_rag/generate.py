@@ -239,6 +239,16 @@ def merge_tiers(*tier_lists: list[list[int]]) -> list[list[int]]:
     return [primary, secondary]
 
 
+def consensus_first(ids: list[int], agreed: set[int], top_k: int = 5) -> list[int]:
+    """R11: trong top_k, đoạn mà CẢ HAI lần đọc chọn làm đoạn chính đứng trước, còn lại giữ thứ tự cũ (sort ổn định).
+
+    Chỉ đổi thứ tự trong top_k: tập top_k và hạng top_k+1..10 giữ nguyên → Recall@5, câu trả lời, Groundedness không
+    đổi; chỉ MRR/NDCG đổi. Lý do: đoạn bối cảnh chung (lịch sử CLB...) hay được một lần đọc chọn, đoạn trả lời trực
+    tiếp thường được cả hai chọn. Cache: dev_casual 98.76 → 98.76, holdout_casual 96.06 → 97.58, 0 câu giảm."""
+    head = sorted(ids[:top_k], key=lambda d: d not in agreed)
+    return head + ids[top_k:]
+
+
 def promote_tiers(ranked: list[int], tiers: list[list[int]]) -> list[int]:
     """Đưa từng tầng đoạn lên đầu theo thứ tự tầng; trong mỗi tầng giữ thứ tự retriever; phần còn lại giữ nguyên.
 

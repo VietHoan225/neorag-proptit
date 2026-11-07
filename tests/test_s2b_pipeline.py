@@ -387,12 +387,13 @@ def test_a3_class_uses_trim_hedges():
     assert pipeline.run("câu hỏi").answer == "Có phòng riêng cho thành viên."
 
 
-def test_default_pipeline_is_a5_submission_config():
+def test_default_pipeline_is_r12mbr_submission_config():
     from s2b_rag.generate import SYSTEM_PROMPT_A, SYSTEM_PROMPT_A4
-    from s2b_rag.pipeline import S2BPipeline, S2BPipelineA5
+    from s2b_rag.pipeline import S2BPipeline, S2BPipelineR12MBR
 
     pipeline = S2BPipeline(retriever="bm25_noaccent_bi", llm=FakeLLM())
-    assert isinstance(pipeline, S2BPipelineA5) and pipeline.second_prompt == SYSTEM_PROMPT_A4
+    assert pipeline.keep_answer_sources
+    assert isinstance(pipeline, S2BPipelineR12MBR) and pipeline.second_prompt == SYSTEM_PROMPT_A4
     assert (pipeline.n_context, pipeline.n_retrieved, pipeline.system_prompt) == (
         20,
         10,
@@ -453,6 +454,67 @@ def test_a5_keeps_first_answer_and_merges_sources_of_second_read():
     assert len(llm.calls) == 2  # lần đọc thứ 2 dùng prompt A4
     assert out.answer == "Câu trả lời lần một."  # câu trả lời của lần 1 (= A2)
     assert out.retrieved_ids[:5] == [4, 12, 8, 1, 2] and len(out.retrieved_ids) == 10
+
+
+def test_consensus_first_reorders_only_top5_and_is_stable():
+    from s2b_rag.generate import consensus_first
+
+    ids = [1, 69, 63, 67, 4, 9, 8, 7, 6, 5]
+    assert consensus_first(ids, {69}) == [69, 1, 63, 67, 4, 9, 8, 7, 6, 5]
+    assert consensus_first(ids, set()) == ids  # không đồng thuận → giữ nguyên
+    assert consensus_first(ids, {9}) == ids  # đoạn ngoài top-5 không được kéo lên
+
+
+def test_r11_puts_doc_chosen_by_both_reads_first_with_same_answer():
+    from s2b_rag.generate import SYSTEM_PROMPT_A, SYSTEM_PROMPT_A4
+    from s2b_rag.pipeline import S2BPipelineA5, S2BPipelineR11
+
+    replies = {
+        SYSTEM_PROMPT_A: "Ý HỎI:\nÝ 1: x | NGUỒN: 3\nÝ 2: y | NGUỒN: 7\nTRẢ LỜI:\nCâu trả lời lần một.",
+        SYSTEM_PROMPT_A4: "Ý HỎI:\nÝ 1: x | NGUỒN: 7\nTRẢ LỜI:\nLần hai.",
+    }
+    docs = [Document(i, "CLB Lập Trình PTIT", "Chủ đề", f"Đoạn {i}.") for i in range(1, 26)]
+    outs = []
+    for cls in (S2BPipelineA5, S2BPipelineR11):
+        pipeline = cls(
+            retriever="bm25_noaccent_bi", llm=FakeLLM(lambda m: replies[m[0]["content"]])
+        )
+        pipeline.retriever = _FixedRanker(list(range(1, 26)))
+        pipeline.index(docs)
+        outs.append(pipeline.run("câu hỏi"))
+    a5, r11 = outs
+    assert a5.retrieved_ids[:5] == [3, 7, 1, 2, 4]
+    assert r11.retrieved_ids[:5] == [7, 3, 1, 2, 4]  # 7 được cả 2 lần đọc chọn
+    assert r11.retrieved_ids[5:] == a5.retrieved_ids[5:] and r11.answer == a5.answer
+
+
+def test_r11mbr_takes_answer_from_mbr_and_top5_order_from_r11():
+    from s2b_rag.generate import (
+        SYSTEM_PROMPT_A,
+        SYSTEM_PROMPT_A4,
+        SYSTEM_PROMPT_E2,
+        SYSTEM_PROMPT_F,
+    )
+    from s2b_rag.pipeline import S2BPipelineMBR, S2BPipelineR11, S2BPipelineR11MBR
+
+    replies = {
+        SYSTEM_PROMPT_A: "Ý HỎI:\nÝ 1: x | NGUỒN: 3\nÝ 2: y | NGUỒN: 7\nTRẢ LỜI:\nCLB thành lập năm 2011.",
+        SYSTEM_PROMPT_A4: "Ý HỎI:\nÝ 1: x | NGUỒN: 7\nTRẢ LỜI:\nCLB được thành lập năm 2011 tại PTIT.",
+        SYSTEM_PROMPT_E2: "CLB được thành lập năm 2011 tại PTIT.\nNGUỒN: 7",
+        SYSTEM_PROMPT_F: "Ý HỎI:\nÝ 1: x | NGUỒN: 7\nTRẢ LỜI:\nCLB được thành lập năm 2011 tại PTIT.",
+    }
+    docs = [Document(i, "CLB Lập Trình PTIT", "Chủ đề", f"Đoạn {i}.") for i in range(1, 26)]
+    outs = {}
+    for cls in (S2BPipelineMBR, S2BPipelineR11, S2BPipelineR11MBR):
+        pipeline = cls(
+            retriever="bm25_noaccent_bi", llm=FakeLLM(lambda m: replies[m[0]["content"]])
+        )
+        pipeline.retriever = _FixedRanker(list(range(1, 26)))
+        pipeline.index(docs)
+        outs[cls] = pipeline.run("câu hỏi")
+    both = outs[S2BPipelineR11MBR]
+    assert both.answer == outs[S2BPipelineMBR].answer == "CLB được thành lập năm 2011 tại PTIT."
+    assert both.retrieved_ids[:5] == outs[S2BPipelineR11].retrieved_ids[:5] == [7, 3, 1, 2, 4]
 
 
 def test_a2_still_calls_llm_once():

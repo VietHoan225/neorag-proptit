@@ -1,7 +1,7 @@
 # ADR-0005: Haiku trích nguồn trong lần sinh câu trả lời để xếp lại top-5 (R9, E1)
 
 - **Ngày:** 2026-11-03 (thí nghiệm A bổ sung 2026-11-04)
-- **Trạng thái:** Chấp nhận (R9 + E1 từ bài nộp #5; A từ bài #6; A2 #7 88.17; **A5 = cấu hình nộp bài, #9 89.15**)
+- **Trạng thái:** Chấp nhận (R9 + E1 từ bài nộp #5; A từ bài #6; A2 #7 88.17; A5 #9 89.15; R11 #13 89.42; R12 #15 retrieval 94.82; R12 + MBR #16 89.59; **R12MBR + sinh lại câu trả lời khi bổ sung đoạn = cấu hình nộp bài, #17 89.99**)
 
 ## Bối cảnh
 - Sau R10 (lần nộp #3: 79.80), retrieval public là 81.8, trong khi dev là 93. Trên dev_casual (ADR-0001), câu cần
@@ -25,6 +25,8 @@
 | 8 | **Câu trả lời của lần đọc 1 + gộp nguồn của 2 lần đọc (lần 2 dùng prompt A4)** (A5) | +1/câu | Chọn (04/11) |
 | 9 | Như #8 + lần đọc thứ 3 (prompt E2) chỉ lấp ô top-5 còn trống (A6) | +2/câu | **Bỏ**: public đổi 3 câu, retrieval y hệt |
 | 10 | Thay prompt A4 ở lần đọc thứ 2 bằng prompt chỉ chọn nguồn | +1/câu như A5 | **Bỏ** (06/11): `dev_casual` 98.76 → 98.84, chỉ NDCG nhích; 4 câu tăng, 3 câu giảm |
+| 11 | **A5 + trong top-5, đoạn được CẢ HAI lần đọc chọn làm đoạn chính đứng trước** (R11, `consensus_first`) | 0 | **Chọn** (07/11): 5 quy tắc đặt trước, đo từ cache; quy tắc theo trùng chữ với câu trả lời làm hỏng nhiều câu (dev +5/−6) |
+| 12 | **R11 + câu bị gắn cờ (ý không nguồn / thiếu CLB / 2 lần đọc lệch) → haiku đọc toàn corpus 118 đoạn, bổ sung đoạn có trích nguyên văn** (R12) | +1 cho câu gắn cờ (~0.0032 USD) | **Chọn** (07/11): holdout +1 gold, public +1 gold (Recall 92.58 → 93.17), 0 đoạn sai |
 
 ## Quyết định
 Chọn **#4 + #5**:
@@ -57,6 +59,8 @@ retrieval (ADR-0003/0004) → 20 đoạn đầu vào prompt → haiku: câu tr�
 | A4: prompt "mọi nguồn, kể đủ, được tính" (bỏ) | 0.9865 | 0.927 | 0.651 | không nộp (dài 257 → 279 ký tự) |
 | **A5: câu trả lời A2 + gộp nguồn A2 ∪ A4** | **0.9876** | 0.936 | 0.638 | **#9: 89.15** (retrieval 93.93, R@5 92.58) |
 | A6: A5 + nguồn lần đọc E2 làm tầng 3 (bỏ) | 0.9878 | 0.936 | 0.638 | #10: 89.05 (retrieval 93.93, y hệt #9) |
+| **R11: A5 + đoạn đồng thuận lên đầu top-5** | 0.9876 (holdout_casual 96.06 → 97.58) | 0.936 | 0.638 | **#13: 89.42** (retrieval 94.50; MRR 96.43 → 97.62, R@5 giữ 92.58) |
+| **R12: R11 + kiểm tra toàn corpus (câu gắn cờ, trích nguyên văn)** | 0.9876 (holdout_casual 97.58 → 98.03) | 0.936 | 0.638 | **#15: 89.36** (retrieval 94.82, R@5 93.17; generation −0.44 với câu trả lời y hệt #13 = nhiễu judge) |
 
 - R9 không làm tụt Recall@5 ở câu nào trên dev; 0 câu bị lọt dòng "NGUỒN" vào câu trả lời; 1−Noise public 79.1 → 83.9.
 - E1, câu 3+ đoạn gold (9 câu): 0.804 → 0.856.
@@ -100,4 +104,4 @@ Chỉ xuất các dòng theo đúng mẫu:
   - Không tách được tác dụng của E1 với E2 và với nhiễu sinh câu trả lời trong mức +1.93 của lần nộp #5.
 - Code: `src/s2b_rag/generate.py` (`split_sources`, `promote_cited`, `promote_tiers`, `split_aspects`,
   `keep_used_sources`), `src/s2b_rag/pipeline.py` (`S2BPipelineR9`, `S2BPipelineCtx20`, `S2BPipelineE2`,
-  `S2BPipelineA`, `S2BPipelineA2`, `S2BPipelineA5` + `merge_tiers`; từ 04/11 `S2BPipeline` = A5 là cấu hình nộp bài); số liệu: `experiments/log.csv`; chi tiết: `docs/journal.md`.
+  `S2BPipelineA`, `S2BPipelineA2`, `S2BPipelineA5` + `merge_tiers`; từ 04/11 `S2BPipeline` = A5, từ 07/11 = R11 (`S2BPipelineR11` + `consensus_first`), rồi R12 (`S2BPipelineR12` + `s2b_rag/evidence.py`) là cấu hình nộp bài); số liệu: `experiments/log.csv`; chi tiết: `docs/journal.md`.

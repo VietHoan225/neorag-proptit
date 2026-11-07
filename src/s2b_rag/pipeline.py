@@ -22,6 +22,17 @@ from dataclasses import dataclass
 from neorag.data import Document
 from neorag.llm import LLMClient
 from neorag.pipelines import RAGOutput, RAGPipeline
+from s2b_rag.evidence import (
+    aspect_lines,
+    check_messages,
+    check_messages_r13,
+    drop_least_used,
+    insert_supplements,
+    insert_supplements_r13,
+    needs_check,
+    parse_supplements,
+    parse_supplements_r13,
+)
 from s2b_rag.generate import (
     FALLBACK_ANSWER,
     RETRY_NOTE,
@@ -33,6 +44,7 @@ from s2b_rag.generate import (
     SYSTEM_PROMPT_F,
     AnswerStreamFilter,
     build_messages,
+    consensus_first,
     drop_tail_hedges,
     keep_used_sources,
     mbr_select,
@@ -381,10 +393,247 @@ class S2BPipelineMBR(S2BPipelineA5):
         return mbr_select([first, *others]) or first
 
 
-class S2BPipeline(S2BPipelineA5):
-    """CẤU HÌNH NỘP BÀI (chốt 04/11) = A5: public #9 89.15 (retrieval 93.93). Trước đó A2: #7 88.17 (chấm lại 87.99).
-    Mỗi câu gọi haiku 2 lần (câu trả lời của lần 1 + nguồn gộp của 2 lần), +1 lần thêm dấu nếu câu không dấu (R10);
-    chatbot chỉ cần lần 1 (+ thêm dấu).
+class S2BPipelineR11(S2BPipelineA5):
+    """Thí nghiệm R11 = A5 + xếp lại top-5: đoạn được CẢ HAI lần đọc chọn làm đoạn chính lên trước (`consensus_first`).
+
+    Cùng 2 lần gọi như A5 (trúng cache) → 0 USD; câu trả lời và tập top-5 y hệt A5, chỉ đổi thứ tự (public đổi 5/42).
+    Chạy: `--pipeline s2b_rag.pipeline:S2BPipelineR11`. So với `S2BPipelineA5` (bài nộp #9, 89.15)."""
+
+    def extra_tiers(
+        self, query: str, context: list[Document], allowed: list[int], tiers: list[list[int]]
+    ) -> list[list[int]]:
+        raw = self.llm.chat(
+            build_messages(query, context, self.second_prompt), model=self.llm_model
+        )
+        _, second = split_aspects(raw, allowed)
+        # predict chạy tuần tự từng câu → lưu tạm trên instance (như MBR), finalize_ids đọc ngay sau đó
+        self._agreed = set(tiers[0] if tiers else []) & set(second[0] if second else [])
+        return merge_tiers(tiers, second)
+
+    def finalize_ids(
+        self, answer: str, ids: list[int], allowed: list[int], tiers: list[list[int]]
+    ) -> list[int]:
+        ids = super().finalize_ids(answer, ids, allowed, tiers)
+        return consensus_first(ids, getattr(self, "_agreed", set()))
+
+
+class S2BPipelineR12(S2BPipelineR11):
+    """Thí nghiệm R12 = R11 + lượt kiểm tra bằng chứng trên TOÀN corpus cho câu bị gắn cờ (`s2b_rag.evidence`).
+
+    Câu trả lời y hệt R11 (#13); chỉ thay đoạn top-5 không đồng thuận bằng đoạn có câu trích nguyên văn trả lời ý thiếu.
+    Chi phí: +1 lần gọi (~51k ký tự) cho câu bị gắn cờ (public 11/42). Lần đọc 1 và 2 được đọc lại từ cache.
+    Chạy: `--pipeline s2b_rag.pipeline:S2BPipelineR12`. So với `S2BPipelineR11` (bài nộp #13, 89.42)."""
+
+    def extra_tiers(
+        self, query: str, context: list[Document], allowed: list[int], tiers: list[list[int]]
+    ) -> list[list[int]]:
+        merged = super().extra_tiers(query, context, allowed, tiers)
+        self._capture_check(query, context, allowed, tiers)
+        return merged
+
+    # True = khi chèn đoạn bổ sung làm dư id, bỏ đoạn hạng 6–10 câu trả lời ít dùng nhất (`drop_least_used`) thay vì
+    # đoạn cuối. False ở các class thí nghiệm để tái lập đúng bài #15/#16; bật ở `S2BPipeline`.
+    keep_answer_sources = False
+
+    def finalize_ids(
+        self, answer: str, ids: list[int], allowed: list[int], tiers: list[list[int]]
+    ) -> list[int]:
+        return self._evidence_check(super().finalize_ids(answer, ids, allowed, tiers), answer)
+
+    def _capture_check(
+        self, query: str, context: list[Document], allowed: list[int], tiers: list[list[int]]
+    ) -> None:
+        """Lưu tín hiệu cho trigger (ý + đoạn chính của 2 lần đọc). Dùng chung cho R12, R13, R12MBR."""
+        self._last_context = context
+        self._last_added = []
+        allowed_set = set(allowed)
+        # cùng messages với lần đọc 1 (run) và lần 2 (R11) → LLMClient trả từ cache
+        raw1 = self.llm.chat(
+            build_messages(query, context, self.system_prompt), model=self.llm_model
+        )
+        raw2 = self.llm.chat(
+            build_messages(query, context, self.second_prompt), model=self.llm_model
+        )
+        _, second = split_aspects(raw2, allowed)
+        self._check = {
+            "query": query,
+            "aspects1": aspect_lines(raw1, allowed_set),
+            "aspects2": aspect_lines(raw2, allowed_set),
+            "primary1": set(tiers[0] if tiers else []),
+            "primary2": set(second[0] if second else []),
+        }
+
+    def _evidence_check(self, ids: list[int], answer: str = "") -> list[int]:
+        """Câu bị gắn cờ → haiku đọc toàn corpus, bổ sung đoạn có trích nguyên văn vào top-5 (sau R11)."""
+        info = getattr(self, "_check", None)
+        if not info:
+            return ids
+        top5 = ids[:5]
+        if not needs_check(
+            info["query"],
+            info["aspects1"],
+            info["aspects2"],
+            info["primary1"],
+            info["primary2"],
+            {self.docs[i].club for i in top5},
+        ):
+            return ids
+        corpus = list(self.docs.values())
+        raw = self.llm.chat(
+            check_messages(info["query"], info["aspects1"], top5, corpus), model=self.llm_model
+        )
+        texts = {i: d.text for i, d in self.docs.items()}
+        added = parse_supplements(raw, texts, top5)
+        self._last_added = added
+        if not getattr(self, "keep_answer_sources", False):
+            return insert_supplements(ids, added, self._agreed)
+        return drop_least_used(
+            answer, insert_supplements(ids, added, self._agreed, cut=False), texts, keep=len(ids)
+        )
+
+    def _refresh_answer_if_added(
+        self, query: str, answer: str, retrieved_ids: list[int]
+    ) -> tuple[str, list[int]]:
+        """Khi _evidence_check tìm được đoạn bổ sung ngoài 20 đoạn ban đầu, cập nhật câu trả lời với context mới."""
+        added = getattr(self, "_last_added", None)
+        if not added:
+            return answer, retrieved_ids
+        old_ctx = getattr(self, "_last_context", [])
+        new_ctx = [self.docs[i] for i in added] + [d for d in old_ctx if d.id not in added]
+        new_ctx = new_ctx[: self.n_context]
+        allowed = [d.id for d in new_ctx]
+        raw = self.llm.chat(
+            build_messages(query, new_ctx, self.system_prompt), model=self.llm_model
+        )
+        new_ans, _ = self.parse_reply(raw, allowed)
+        new_ans = self.finalize_answer(postprocess(new_ans) or answer)
+        return new_ans, self._resync_ids(new_ans, retrieved_ids, new_ctx)
+
+    def _resync_ids(self, answer: str, ids: list[int], context: list[Document]) -> list[int]:
+        """Sau khi sinh lại câu trả lời: chạy lại `keep_used_sources` với câu trả lời MỚI, để đoạn nó dùng (trong ngữ
+        cảnh mới) có mặt ở hạng 6–10. Trước đây id được chọn theo câu trả lời cũ (public-0016 #17 giữ đoạn 91 chỉ vì
+        câu cũ dùng link MPC). Không đụng top-5 → retrieval giữ nguyên."""
+        if not getattr(self, "keep_answer_sources", False):
+            return ids
+        texts = {i: d.text for i, d in self.docs.items()}
+        candidates = [d.id for d in context if d.id not in ids]
+        return keep_used_sources(answer, ids, candidates, texts, set(ids[:5]))
+
+    def run(self, query: str) -> RAGOutput:
+        out = super().run(query)
+        new_answer, new_ids = self._refresh_answer_if_added(query, out.answer, out.retrieved_ids)
+        return RAGOutput(answer=new_answer, retrieved_ids=new_ids)
+
+
+class S2BPipelineR13(S2BPipelineR12):
+    """Thí nghiệm R13 = R11 + kiểm tra toàn corpus cho MỌI câu (không trigger), tách theo từng đối tượng, được bổ sung
+    nhiều đoạn (`CHECK_PROMPT_R13`); đoạn lấp không được trích bị thay trước. Câu trả lời y hệt R11/R12.
+    Chi phí: +1 lần gọi (~51k ký tự, ~0.0032 USD) cho MỌI câu. So với `S2BPipelineR12` (#15, retrieval 94.82)."""
+
+    def finalize_ids(
+        self, answer: str, ids: list[int], allowed: list[int], tiers: list[list[int]]
+    ) -> list[int]:
+        ids = S2BPipelineR11.finalize_ids(
+            self, answer, ids, allowed, tiers
+        )  # bỏ qua lượt kiểm tra R12
+        info = getattr(self, "_check", None)
+        if not info:
+            return ids
+        top5 = ids[:5]
+        raw = self.llm.chat(
+            check_messages_r13(info["query"], info["aspects1"], top5, list(self.docs.values())),
+            model=self.llm_model,
+        )
+        added = parse_supplements_r13(raw, {i: d.text for i, d in self.docs.items()}, top5)
+        cited = {d for tier in tiers for d in tier}
+        return insert_supplements_r13(ids, added, self._agreed, cited)
+
+
+class S2BPipelineR11MBR(S2BPipelineMBR):
+    """Thí nghiệm R11+MBR = câu trả lời chọn theo đồng thuận 4 bản (MBR, #12) + xếp lại top-5 theo R11 (#13).
+
+    Hai phần độc lập: MBR chỉ đổi câu trả lời (+ hạng 6–10 qua `keep_used_sources`), R11 chỉ đổi thứ tự top-5.
+    Public: 4 lần đọc đều trúng cache → 0 USD. Ngày thi: 4 lần gọi/câu (lần đọc A4 được đọc lại từ cache, không tốn).
+    Chạy: `--pipeline s2b_rag.pipeline:S2BPipelineR11MBR`. So với `S2BPipelineR11` (bài nộp #13, 89.42)."""
+
+    def extra_tiers(
+        self, query: str, context: list[Document], allowed: list[int], tiers: list[list[int]]
+    ) -> list[list[int]]:
+        merged = super().extra_tiers(query, context, allowed, tiers)
+        # MBR đã gọi đúng messages này → LLMClient trả từ cache; cần tầng chính riêng của lần 2 cho R11
+        raw = self.llm.chat(
+            build_messages(query, context, self.second_prompt), model=self.llm_model
+        )
+        _, second = split_aspects(raw, allowed)
+        self._agreed = set(tiers[0] if tiers else []) & set(second[0] if second else [])
+        return merged
+
+    def finalize_ids(
+        self, answer: str, ids: list[int], allowed: list[int], tiers: list[list[int]]
+    ) -> list[int]:
+        ids = super().finalize_ids(answer, ids, allowed, tiers)
+        return consensus_first(ids, getattr(self, "_agreed", set()))
+
+
+class S2BPipelineR12MBR(S2BPipelineR11MBR):
+    """Thí nghiệm R12+MBR = câu trả lời MBR (như #14) + id của R12 (như #15: R11 + kiểm tra toàn corpus câu gắn cờ).
+
+    Hai phần độc lập: MBR chỉ đổi câu trả lời (+ hạng 6–10 qua `keep_used_sources`), R12 chỉ đổi top-5.
+    Public: mọi lần gọi đã có trong cache → 0 USD. Ngày thi: 4 lần đọc/câu + 1 lần kiểm tra cho câu gắn cờ (+ thêm dấu).
+    Chạy: `--pipeline s2b_rag.pipeline:S2BPipelineR12MBR`. So với #14 (89.56) và #15 (retrieval 94.82)."""
+
+    keep_answer_sources = True
+
+    def extra_tiers(
+        self, query: str, context: list[Document], allowed: list[int], tiers: list[list[int]]
+    ) -> list[list[int]]:
+        merged = super().extra_tiers(query, context, allowed, tiers)
+        S2BPipelineR12._capture_check(self, query, context, allowed, tiers)
+        return merged
+
+    def finalize_ids(
+        self, answer: str, ids: list[int], allowed: list[int], tiers: list[list[int]]
+    ) -> list[int]:
+        ids = super().finalize_ids(answer, ids, allowed, tiers)
+        return S2BPipelineR12._evidence_check(self, ids, answer)
+
+    def _refresh_answer_if_added(
+        self, query: str, answer: str, retrieved_ids: list[int]
+    ) -> tuple[str, list[int]]:
+        """Với MBR, khi có đoạn bổ sung ngoài 20 đoạn ban đầu, chạy MBR trên context mới để cập nhật câu trả lời."""
+        added = getattr(self, "_last_added", None)
+        if not added:
+            return answer, retrieved_ids
+        old_ctx = getattr(self, "_last_context", [])
+        new_ctx = [self.docs[i] for i in added] + [d for d in old_ctx if d.id not in added]
+        new_ctx = new_ctx[: self.n_context]
+        allowed = [d.id for d in new_ctx]
+
+        candidates = []
+        for prompt in [self.system_prompt, self.second_prompt, *self.candidate_prompts]:
+            raw = self.llm.chat(build_messages(query, new_ctx, prompt), model=self.llm_model)
+            # như S2BPipelineMBR: chỉ E2 ghi 1 dòng NGUỒN; A/A4/F có phần "Ý HỎI" phải tách bằng split_aspects
+            parse = split_sources if prompt == SYSTEM_PROMPT_E2 else split_aspects
+            cand_ans, _ = parse(raw, allowed)
+            candidates.append(self.finalize_answer(postprocess(cand_ans)))
+        new_ans = mbr_select(candidates) or answer
+        return new_ans, S2BPipelineR12._resync_ids(self, new_ans, retrieved_ids, new_ctx)
+
+    def run(self, query: str) -> RAGOutput:
+        out = super().run(query)
+        new_answer, new_ids = self._refresh_answer_if_added(query, out.answer, out.retrieved_ids)
+        return RAGOutput(answer=new_answer, retrieved_ids=new_ids)
+
+
+class S2BPipeline(S2BPipelineR12MBR):
+    """CẤU HÌNH NỘP BÀI (chốt 07/11) = R12MBR: public #17 89.99 (nộp lại 89.92); retrieval 94.82, SP 96.15, ROUGE-L 63.70.
+    = R11 (đoạn được 2 lần đọc đồng thuận lên đầu top-5) + R12 (câu bị gắn cờ → kiểm tra toàn corpus, bổ sung đoạn có
+    trích nguyên văn) + MBR (chọn câu trả lời đồng thuận trong 4 bản A/A4/E2/F) + khi có đoạn bổ sung thì sinh lại câu
+    trả lời và giữ ở hạng 6–10 đoạn mà câu trả lời dùng (`keep_answer_sources`).
+    Mỗi câu gọi haiku 4 lần, +1 lần kiểm tra toàn corpus nếu bị gắn cờ (public 11/42), +4 lần sinh lại nếu được bổ
+    sung đoạn (public 1/42), +1 lần thêm dấu nếu câu không dấu (R10); chatbot chỉ cần lần 1 (+ thêm dấu).
 
     Ngày thi: `neorag run private_test --pipeline s2b_rag.pipeline:S2BPipeline`. Đổi cấu hình nộp bài = đổi lớp cha
     của class này, không sửa các class thí nghiệm ở trên."""
+
+    keep_answer_sources = True
