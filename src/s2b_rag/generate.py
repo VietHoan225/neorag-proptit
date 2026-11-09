@@ -13,6 +13,7 @@ import re
 import unicodedata
 
 from neorag.data import Document
+from neorag.metrics.lexical import rouge_l
 from neorag.text import split_sentences
 
 SYSTEM_PROMPT = """Bạn là trợ lý hỏi đáp về cộng đồng S2B tại Học viện Công nghệ Bưu chính Viễn thông (PTIT), \
@@ -137,6 +138,35 @@ for _old, _new in _A4_RULES:
     assert SYSTEM_PROMPT_A4.count(_old) == 1, _old
     SYSTEM_PROMPT_A4 = SYSTEM_PROMPT_A4.replace(_old, _new)
 
+# F (thử 06/11) = A (prompt lần đọc 1 của A5) + 2 thay đổi nhắm ROUGE-L (public #9: 60.84, mất 3.26 điểm gốc):
+# (1) luật chép nguyên cụm câu của tài liệu. Đo cache (0 USD): đáp án mẫu chép đoạn gold 0.76–0.79 (tỉ lệ âm tiết
+#     nằm trong dãy chung dài nhất), câu trả lời A2 chỉ 0.71–0.72. Cắt câu không giúp (trần +0.03 ROUGE-L).
+# (2) 3 ví dụ cách viết, lấy từ HOLDOUT (train-0075, train-0038, train-0035: câu hỏi kiểu đời thường + đáp án mẫu), nên
+#     chỉ đo F trên dev_casual; holdout không còn sạch để đánh giá F. Dặn rõ không dùng thông tin trong ví dụ.
+_VERBATIM_OLD = (
+    "- Dùng lại đúng cụm từ của tài liệu cho các ý chính (tên hoạt động, tiêu chí, mô tả), không thay bằng từ "
+    "đồng nghĩa."
+)
+_VERBATIM_NEW = (
+    _VERBATIM_OLD
+    + "\n- Ưu tiên chép nguyên cụm câu của tài liệu theo đúng thứ tự từ, chỉ thêm từ nối cần thiết; "
+    "không diễn đạt lại bằng lời của mình."
+)
+_F_EXAMPLES = """
+
+VÍ DỤ CÁCH VIẾT PHẦN TRẢ LỜI (chỉ để minh họa giọng văn và độ dài; KHÔNG dùng thông tin trong ví dụ để trả lời):
+Câu hỏi: buoi hoc clb lt ptit ma minh biet het kien thuc roi thi co can den ko
+TRẢ LỜI: Có. Theo nội quy CLB Lập Trình PTIT, dù đã nắm phần kiến thức của buổi học, thành viên vẫn cần có mặt, \
+nghe giảng đầy đủ và nên chủ động hỗ trợ các bạn khác.
+Câu hỏi: dot tuyen 2023 cua gcc, phai qua nhung vong nao thi moi duoc di first meeting
+TRẢ LỜI: Đợt tuyển năm 2023 của CLB Nhà Sáng Tạo Game PTIT (GCC) gồm vòng CV, vòng Phỏng vấn và vòng Training. \
+First Meeting GCC 2023 dành cho các bạn đã vượt qua vòng CV và vòng Phỏng vấn để vào vòng Training.
+Câu hỏi: minh thich nghi y tuong, viet loi cho cac chien dich truyen thong thi vao multimedia nen chon ban nao
+TRẢ LỜI: Bạn hợp với Ban Nội dung (biệt danh The Bards) của CLB Multimedia PTIT: ban này xây dựng cốt truyện cho \
+các chiến dịch, kiến tạo thông điệp, ý tưởng và ngôn từ cho hoạt động của CLB."""
+assert SYSTEM_PROMPT_A.count(_VERBATIM_OLD) == 1
+SYSTEM_PROMPT_F = SYSTEM_PROMPT_A.replace(_VERBATIM_OLD, _VERBATIM_NEW) + _F_EXAMPLES
+
 USER_TEMPLATE = """TÀI LIỆU:
 {context}
 
@@ -207,6 +237,16 @@ def merge_tiers(*tier_lists: list[list[int]]) -> list[list[int]]:
         primary += tiers[0] if tiers else []
         secondary += [d for tier in tiers[1:] for d in tier]
     return [primary, secondary]
+
+
+def consensus_first(ids: list[int], agreed: set[int], top_k: int = 5) -> list[int]:
+    """R11: trong top_k, đoạn mà CẢ HAI lần đọc chọn làm đoạn chính đứng trước, còn lại giữ thứ tự cũ (sort ổn định).
+
+    Chỉ đổi thứ tự trong top_k: tập top_k và hạng top_k+1..10 giữ nguyên → Recall@5, câu trả lời, Groundedness không
+    đổi; chỉ MRR/NDCG đổi. Lý do: đoạn bối cảnh chung (lịch sử CLB...) hay được một lần đọc chọn, đoạn trả lời trực
+    tiếp thường được cả hai chọn. Cache: dev_casual 98.76 → 98.76, holdout_casual 96.06 → 97.58, 0 câu giảm."""
+    head = sorted(ids[:top_k], key=lambda d: d not in agreed)
+    return head + ids[top_k:]
 
 
 def promote_tiers(ranked: list[int], tiers: list[list[int]]) -> list[int]:
@@ -374,6 +414,22 @@ def trim_hedges(answer: str) -> str:
     return " ".join(out)
 
 
+def mbr_select(candidates: list[str]) -> str:
+    """MBR (Minimum Bayes Risk): chọn câu trả lời giống các bản còn lại nhất (tổng ROUGE-L với mọi bản khác).
+
+    Ý tưởng: chỗ nhiều bản cùng viết thường đúng; chi tiết chỉ một bản có dễ là lỗi riêng của bản đó. Không dùng
+    đáp án → cùng một luật cho mọi câu. Bản rỗng bị bỏ; hòa điểm thì giữ bản đứng trước (bản A của A5).
+    Đo dev_casual (cache, 4 bản A/A4/E2/F): SP 0.9359 → 0.9444, ROUGE-L 0.6375 → 0.6844, 8/8 vẫn từ chối."""
+    pool = [c for c in candidates if c.strip()]
+    if len(pool) < 2:
+        return pool[0] if pool else ""
+
+    def agreement(i: int) -> float:
+        return sum(rouge_l(pool[i], other) for j, other in enumerate(pool) if j != i)
+
+    return pool[max(range(len(pool)), key=lambda i: (agreement(i), -i))]
+
+
 _HEADING = re.compile(r"^\s{0,3}#{1,6}\s*", re.MULTILINE)
 _LIST_MARKER = re.compile(r"^\s*(?:[-*•+]|\d+[.)])\s+", re.MULTILINE)
 _EMPHASIS = re.compile(r"(\*\*|__|\*|`)")
@@ -394,3 +450,67 @@ def postprocess(answer: str) -> str:
     if lines:
         joined = f"{joined} {lines[-1]}".strip()
     return _SPACES.sub(" ", joined).strip()
+
+
+class AnswerStreamFilter:
+    """Chatbot: lọc từng mẩu chữ haiku stream ra, chỉ cho hiện phần câu trả lời.
+
+    - Định dạng A (`wait_head=True`): giữ lại toàn bộ phần "Ý HỎI ... | NGUỒN: ..." cho tới khi gặp "TRẢ LỜI:".
+    - Mọi định dạng: chặn dòng "NGUỒN: ..." (R9 ghi ở cuối, A đôi khi thêm). Một dòng chỉ bị giữ lại khi phần đầu
+      của nó còn có thể là "NGUỒN"; dòng bắt đầu bằng chữ khác được cho hiện ngay, nên chữ vẫn chạy dần.
+    Bản cuối cùng hiển thị vẫn là `finish_answer` (cùng hậu xử lý với bài nộp); bộ lọc chỉ để người dùng không thấy
+    phần nội bộ trong lúc chờ.
+    """
+
+    _KEYWORD = "NGUỒN"
+
+    def __init__(self, wait_head: bool = True):
+        self.started = not wait_head
+        self.pending = ""  # trước "TRẢ LỜI:" (khi chờ), hoặc đầu dòng hiện tại chưa quyết định được
+        self.live = False  # dòng hiện tại đã chắc chắn là câu trả lời → cho hiện thẳng
+        self.emitted = False
+
+    def feed(self, piece: str) -> str:
+        if not self.started:
+            self.pending += piece
+            heads = list(_ANSWER_HEAD.finditer(self.pending))
+            if not heads:
+                return ""
+            rest, self.pending, self.started = self.pending[heads[-1].end() :], "", True
+            return self._visible(rest)
+        return self._visible(piece)
+
+    def finish(self) -> str:
+        """Phần còn giữ lại khi stream kết thúc (dòng cuối không xuống dòng)."""
+        if not self.started or not self.pending or _SOURCES.match(self.pending):
+            return ""
+        return self._out(self.pending)
+
+    def _visible(self, text: str) -> str:
+        out = []
+        for part in re.split(r"(\n)", text):
+            if part == "\n":
+                if self.live:
+                    out.append("\n")
+                elif self.pending.strip() and not _SOURCES.match(self.pending):
+                    out.append(self.pending + "\n")
+                self.pending, self.live = "", False
+            elif self.live:
+                out.append(part)
+            elif part:
+                self.pending += part
+                probe = self.pending.lstrip(" \t*_#").upper()
+                if (
+                    probe
+                    and not probe.startswith(self._KEYWORD)
+                    and not self._KEYWORD.startswith(probe)
+                ):
+                    out.append(self.pending)
+                    self.pending, self.live = "", True
+        return self._out("".join(out))
+
+    def _out(self, text: str) -> str:
+        if not self.emitted:
+            text = text.lstrip()
+            self.emitted = bool(text)
+        return text

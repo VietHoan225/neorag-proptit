@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hỏi về S2B</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  /* Màu CLB là thông tin (đoạn nguồn thuộc CLB nào), phần còn lại trung tính. */
+  :root {
+    --bg: #F5F7FA; --surface: #FFFFFF; --ink: #1C2633; --muted: #5E6B7D; --line: #DDE3EA;
+    --proptit: #2F6BD8; --mpc: #C93D86; --gcc: #23935F; --s2b: #6F7C8F;
+    --radius-msg: 18px; --radius-chip: 6px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12171E; --surface: #1A212B; --ink: #E4E9F0; --muted: #98A4B5; --line: #2B3440;
+      --proptit: #6F9CF0; --mpc: #E57AB4; --gcc: #4FC28A; --s2b: #8E9AAC;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12171E; --surface: #1A212B; --ink: #E4E9F0; --muted: #98A4B5; --line: #2B3440;
+    --proptit: #6F9CF0; --mpc: #E57AB4; --gcc: #4FC28A; --s2b: #8E9AAC;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 400 16px/1.6 "Be Vietnam Pro", system-ui, sans-serif;
+    display: flex; flex-direction: column;
+  }
+  button, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--proptit); outline-offset: 2px; }
+
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 14px max(16px, calc(50% - 380px)); border-bottom: 1px solid var(--line);
+  }
+  header h1 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin: 0; padding: 0; list-style: none;
+            font-size: 13px; color: var(--muted); }
+  .legend li { display: flex; align-items: center; gap: 6px; }
+  .swatch { width: 10px; height: 10px; border-radius: 3px; background: var(--c); }
+  .theme { margin-left: auto; border: 1px solid var(--line); background: none; border-radius: 8px;
+           padding: 4px 10px; font-size: 13px; cursor: pointer; color: var(--muted); }
+  @media (max-width: 560px) {
+    header { gap: 8px 12px; }
+    .theme { order: 1; }
+    .legend { order: 2; width: 100%; gap: 10px; font-size: 12px; }
+  }
+
+  main { flex: 1; overflow-y: auto; }
+  .thread { max-width: 760px; margin: 0 auto; padding: 24px 16px 8px; }
+
+  /* Màn hình trống: lời mời đặt câu hỏi */
+  .empty h2 { font-size: clamp(26px, 5vw, 34px); line-height: 1.2; font-weight: 700;
+              letter-spacing: -0.02em; margin: 24px 0 8px; max-width: 24ch; }
+  .empty p { color: var(--muted); margin: 0 0 20px; max-width: 60ch; }
+  .suggest { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  @media (max-width: 560px) { .suggest { grid-template-columns: 1fr; } }
+  .suggest button {
+    text-align: left; background: var(--surface); border: 1px solid var(--line);
+    border-left: 3px solid var(--c); border-radius: 10px; padding: 10px 12px; cursor: pointer;
+  }
+  .suggest button:hover { border-color: var(--c); }
+  .suggest small { display: block; color: var(--muted); font-size: 12px; }
+  .bot .suggest { margin-top: 10px; }
+
+  .msg { margin: 18px 0; }
+  .user { display: flex; justify-content: flex-end; }
+  .user p { margin: 0; background: var(--ink); color: var(--bg); padding: 10px 14px;
+            border-radius: var(--radius-msg) var(--radius-msg) 4px var(--radius-msg); max-width: 80%;
+            white-space: pre-wrap; }
+
+  .bot { background: var(--surface); border: 1px solid var(--line); border-radius: 4px var(--radius-msg) var(--radius-msg) var(--radius-msg);
+         padding: 14px 16px; }
+  .status { font-size: 14px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+  .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--proptit);
+           animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
+  .rewrite { font-size: 14px; color: var(--muted); margin: 6px 0 0; }
+  .rewrite q { color: var(--ink); quotes: "“" "”"; }
+
+  /* Dòng "Đã xem N đoạn gần nghĩa nhất": đếm theo CLB, mỗi CLB một tag màu (thay cho dải vạch khó hiểu) */
+  .found { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 12px 0 4px;
+           font-size: 13px; color: var(--muted); }
+  .tag { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 999px;
+         border: 1px solid var(--line); color: var(--ink); font-size: 12px; white-space: nowrap; }
+  .tag::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+
+  .answer { margin: 10px 0 0; white-space: pre-wrap; max-width: 70ch; }
+  .answer.typing::after { content: ""; display: inline-block; width: 7px; height: 1em; margin-left: 2px;
+                          vertical-align: -2px; background: var(--ink); animation: pulse .8s step-end infinite; }
+  .error { color: var(--mpc); margin: 10px 0 0; }
+  .retry { margin-top: 8px; border: 1px solid var(--line); background: none; border-radius: 8px;
+           padding: 4px 12px; cursor: pointer; }
+
+  .meta { font-size: 13px; color: var(--muted); margin-top: 12px; }
+  /* Nguồn: đoạn được dùng để trả lời hiện sẵn (mỗi đoạn một dòng, bấm để xem trích đoạn); đoạn khác thu gọn */
+  .cites { margin-top: 10px; font-size: 13px; }
+  .cites h3 { margin: 0 0 4px; font-size: 12px; font-weight: 500; color: var(--muted); }
+  .cites > details > summary { cursor: pointer; color: var(--muted); margin-top: 6px; }
+  .src { border-left: 3px solid var(--c); padding: 2px 0 2px 8px; margin: 4px 0; }
+  .src summary { cursor: pointer; list-style: none; color: var(--ink); }
+  .src summary::-webkit-details-marker { display: none; }
+  .src summary span { color: var(--muted); }
+  .src p { margin: 4px 0 2px; color: var(--muted); }
+
+  form { border-top: 1px solid var(--line); background: var(--bg);
+         padding: 12px max(16px, calc(50% - 380px)) 16px; display: flex; gap: 8px; }
+  textarea { flex: 1; resize: none; min-height: 46px; max-height: 160px; padding: 11px 14px;
+             border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+  .send { border: 0; border-radius: 12px; padding: 0 18px; background: var(--ink); color: var(--bg);
+          font-weight: 500; cursor: pointer; }
+  .send:disabled { opacity: .45; cursor: default; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::after { animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Hỏi về S2B</h1>
+  <ul class="legend" aria-label="Màu của từng CLB">
+    <li><span class="swatch" style="--c: var(--proptit)"></span>Lập Trình PTIT</li>
+    <li><span class="swatch" style="--c: var(--mpc)"></span>Multimedia PTIT</li>
+    <li><span class="swatch" style="--c: var(--gcc)"></span>GCC</li>
+    <li><span class="swatch" style="--c: var(--s2b)"></span>S2B chung</li>
+  </ul>
+  <button class="theme" id="theme" type="button">Giao diện tối</button>
+</header>
+
+<main id="scroll">
+  <div class="thread" id="thread" aria-live="polite">
+    <section class="empty" id="empty">
+      <h2>Hỏi bất cứ điều gì về ba CLB của S2B</h2>
+      <p>Câu trả lời chỉ dựa trên tài liệu của CLB Lập Trình PTIT, CLB Multimedia PTIT và CLB Nhà Sáng Tạo Game PTIT.
+         Gõ không dấu hay viết tắt cũng được.</p>
+      <div class="suggest" id="suggest"></div>
+    </section>
+  </div>
+</main>
+
+<form id="form">
+  <textarea id="input" rows="1" placeholder="Nhập câu hỏi" aria-label="Câu hỏi"></textarea>
+  <button class="send" id="send" type="submit">Gửi</button>
+</form>
+
+<script>
+const CLUBS = {
+  "CLB Lập Trình PTIT": { name: "Lập Trình PTIT", color: "var(--proptit)" },
+  "CLB Multimedia PTIT": { name: "Multimedia PTIT", color: "var(--mpc)" },
+  "CLB Nhà Sáng Tạo Game PTIT (GCC)": { name: "GCC", color: "var(--gcc)" },
+  "Cộng đồng S2B": { name: "S2B chung", color: "var(--s2b)" },
+};
+const club = (c) => CLUBS[c] || { name: c, color: "var(--s2b)" };
+
+const SUGGESTIONS = [
+  { q: "CLB Lập Trình PTIT được thành lập khi nào?", note: "Có dấu", color: "var(--proptit)" },
+  { q: "clb mm tuyen thanh vien khi nao", note: "Không dấu, viết tắt", color: "var(--mpc)" },
+  { q: "GCC là viết tắt của gì và CLB làm về mảng nào?", note: "Nhiều ý", color: "var(--gcc)" },
+  { q: "Ba CLB trong S2B khác nhau thế nào?", note: "So sánh cả ba CLB", color: "var(--s2b)" },
+];
+
+const $ = (id) => document.getElementById(id);
+const el = (tag, attrs = {}, text) => {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) k === "style" ? n.style.cssText = v : n.setAttribute(k, v);
+  if (text !== undefined) n.textContent = text;  // luôn textContent: không chèn HTML từ model
+  return n;
+};
+const hasDiacritics = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[đĐ]/g, "d") !== s;
+const scrollDown = () => { $("scroll").scrollTop = $("scroll").scrollHeight; };
+const sec = (x) => `${x.toLocaleString("vi-VN", { maximumFractionDigits: 1 })} giây`;
+
+// Giao diện sáng/tối: mặc định theo hệ điều hành, nút bấm ghi đè (nhớ trong trình duyệt nếu được)
+function applyTheme(t) {
+  if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
+  const dark = t ? t === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  $("theme").textContent = dark ? "Giao diện sáng" : "Giao diện tối";
+}
+let saved = null;
+try { saved = localStorage.getItem("theme"); } catch {}
+applyTheme(saved);
+$("theme").onclick = () => {
+  const dark = document.documentElement.dataset.theme
+    ? document.documentElement.dataset.theme === "dark"
+    : matchMedia("(prefers-color-scheme: dark)").matches;
+  const next = dark ? "light" : "dark";
+  applyTheme(next);
+  try { localStorage.setItem("theme", next); } catch {}
+};
+
+function suggestButtons() {
+  const box = el("div", { class: "suggest" });
+  for (const s of SUGGESTIONS) {
+    const b = el("button", { type: "button", style: `--c: ${s.color}` }, s.q);
+    b.append(el("small", {}, s.note));
+    b.onclick = () => ask(s.q);
+    box.append(b);
+  }
+  return box;
+}
+$("suggest").replaceWith(suggestButtons());
+
+$("form").onsubmit = (e) => { e.preventDefault(); ask($("input").value); };
+$("input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("form").requestSubmit(); }
+});
+$("input").addEventListener("input", (e) => {
+  e.target.style.height = "auto"; e.target.style.height = e.target.scrollHeight + "px";
+});
+
+let busy = false;
+// Memory ngắn hạn: 2 lượt hỏi đáp gần nhất (chỉ trong trang; tải lại trang = cuộc trò chuyện mới).
+// Server dùng để hiểu câu nối tiếp như "thế còn GCC thì sao?".
+let history = [];
+
+async function ask(raw) {
+  const query = raw.trim();
+  if (!query || busy) return;
+  busy = true; $("send").disabled = true;
+  $("input").value = ""; $("input").style.height = "auto";
+  $("empty")?.remove();
+
+  const userMsg = el("div", { class: "msg user" });
+  userMsg.append(el("p", {}, query));
+  const bot = el("div", { class: "msg bot" });
+  const status = el("div", { class: "status" });
+  status.append(el("span", { class: "pulse" }),
+    el("span", {}, history.length ? "Đang hiểu câu hỏi và tìm tài liệu"
+      : hasDiacritics(query) ? "Đang tìm tài liệu" : "Đang thêm dấu cho câu hỏi và tìm tài liệu"));
+  bot.append(status);
+  $("thread").append(userMsg, bot);
+  scrollDown();
+
+  let answer = null;
+  try {
+    const res = await fetch("/api/ask", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, history }),
+    });
+    if (!res.ok) throw new Error(`Máy chủ trả lỗi ${res.status}`);
+    // NDJSON: đọc từng mẩu, gom vào bộ đệm, mỗi dòng trọn vẹn là một sự kiện JSON
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, nl); buffer = buffer.slice(nl + 1);
+        if (line.trim()) answer = handle(JSON.parse(line), bot, status, answer, query);
+      }
+    }
+  } catch (err) {
+    showError(bot, status, `Không kết nối được tới máy chủ (${err.message}).`, query);
+  } finally {
+    busy = false; $("send").disabled = false; $("input").focus();
+  }
+}
+
+function handle(ev, bot, status, answer, query) {
+  if (ev.type === "smalltalk") {  // câu xã giao / không phải câu hỏi: trả lời ngay, kèm câu hỏi gợi ý
+    status.remove();
+    if (ev.rewritten) bot.append(rewriteLine(ev.rewritten));
+    bot.append(el("p", { class: "answer" }, ev.answer), suggestButtons());
+    bot.append(el("div", { class: "meta" }, `Không cần tra tài liệu, trả lời sau ${sec(ev.seconds)}`));
+  } else if (ev.type === "retrieval") {
+    status.lastChild.textContent = "Đang soạn câu trả lời";
+    if (ev.rewritten) bot.append(rewriteLine(ev.rewritten));
+    bot.asked = ev.rewritten;
+    bot.append(foundLine(ev.sources, ev.seconds));
+    bot.sources = ev.sources;
+    answer = el("p", { class: "answer typing" });
+    bot.append(answer);
+  } else if (ev.type === "token") {
+    status.remove();
+    answer.textContent += ev.text;
+  } else if (ev.type === "done") {
+    status.remove();
+    answer.classList.remove("typing");
+    answer.textContent = ev.answer;  // bản đã hậu xử lý, giống hệt bài nộp
+    history = [...history, { q: bot.asked || query, a: ev.answer }].slice(-2);  // nhớ câu đã hiểu, không phải câu gõ tắt
+    const t = ev.timings;
+    bot.append(el("div", { class: "meta" },
+      `Tìm tài liệu ${sec(t.retrieval)}, chữ đầu tiên sau ${sec(t.first_token)}, tổng ${sec(t.total)}`));
+    bot.append(sourceList(ev.sources || bot.sources));  // nguồn haiku đã trích đứng đầu
+  } else if (ev.type === "error") {
+    showError(bot, status, ev.message, query);
+  }
+  scrollDown();
+  return answer;
+}
+
+function rewriteLine(text) {
+  const p = el("p", { class: "rewrite" }, "Hiểu câu hỏi là ");
+  p.append(el("q", {}, text));
+  return p;
+}
+
+// "Đã xem 10 đoạn gần nghĩa nhất (1,2 giây): [Lập Trình PTIT 6] [GCC 3] [Multimedia PTIT 1]".
+// Retriever luôn trả đủ 10 đoạn theo độ gần nghĩa, nên có thể lẫn đoạn của CLB khác (vd "thành lập" của GCC);
+// haiku mới là bước chọn đoạn đúng → các đoạn đó hiện ở mục "Nguồn được dùng để trả lời".
+function foundLine(sources, seconds) {
+  const counts = new Map();
+  for (const s of sources) counts.set(s.club, (counts.get(s.club) || 0) + 1);
+  const line = el("div", { class: "found" }, `Đã xem ${sources.length} đoạn gần nghĩa nhất (${sec(seconds)}):`);
+  for (const [c, n] of counts) line.append(el("span", { class: "tag", style: `--c: ${club(c).color}` }, `${club(c).name} ${n}`));
+  return line;
+}
+
+function sourceItem(s) {
+  const d = el("details", { class: "src", style: `--c: ${club(s.club).color}` });
+  const sum = el("summary", {}, club(s.club).name);
+  sum.append(el("span", {}, ` · ${s.topic} · đoạn ${s.id}`));
+  d.append(sum, el("p", {}, s.snippet));
+  return d;
+}
+
+// Đoạn haiku đã dùng để trả lời: hiện sẵn, mỗi đoạn một dòng. Các đoạn khác tìm được: thu gọn.
+function sourceList(sources) {
+  const box = el("div", { class: "cites" });
+  const cited = sources.filter((s) => s.cited), rest = sources.filter((s) => !s.cited);
+  if (cited.length) {
+    box.append(el("h3", {}, `Nguồn được dùng để trả lời (${cited.length})`));
+    for (const s of cited) box.append(sourceItem(s));
+  }
+  if (rest.length) {
+    const more = el("details");
+    more.append(el("summary", {}, cited.length ? `Xem ${rest.length} đoạn gần nghĩa khác (không dùng để trả lời)` : `Xem ${rest.length} đoạn gần nghĩa nhất`));
+    for (const s of rest) more.append(sourceItem(s));
+    box.append(more);
+  }
+  return box;
+}
+
+function showError(bot, status, message, query) {
+  status.remove();
+  bot.querySelector(".answer")?.classList.remove("typing");
+  bot.append(el("p", { class: "error" }, message));
+  const retry = el("button", { class: "retry", type: "button" }, "Hỏi lại");
+  retry.onclick = () => ask(query);
+  bot.append(retry);
+}
+</script>
+</body>
+</html>

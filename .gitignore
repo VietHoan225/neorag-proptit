@@ -35,6 +35,12 @@ Thumbs.db
 docs/plan.md
 docs/journal.md
 docs/scoring-guide.md
+docs/handoff.md
+docs/slides-plan.md
+docs/slides/
 
 # Sơ đồ / trang explainer vẽ bằng archify (bản nháp cá nhân, không commit)
 .archify/
+
+# Slide đã build (sinh từ docs/slides/deck.md)
+docs/slides/out/

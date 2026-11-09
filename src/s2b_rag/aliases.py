@@ -68,3 +68,26 @@ def detect_clubs_multi(query: str) -> list[str]:
 def enrich(club: str, topic: str, text: str) -> str:
     """R4: "<CLB + alias> · <chủ đề>. <đoạn văn>" — để đoạn khớp cả khi câu hỏi gọi CLB bằng tên khác."""
     return f"{CLUB_LABELS.get(club, club)} · {topic}. {text}"
+
+
+# Thí nghiệm "paren" (08/11): người hỏi gọi CLB bằng tên khác → thêm tên đó trong ngoặc ở lần nhắc đầu tiên của tên
+# chính thức, ví dụ "CLB Lập Trình PTIT (ProPTIT)" (đáp án mẫu cũng có kiểu này). Chỉ các alias đã đo trên
+# dev_casual/holdout_casual; Relevancy judge trên câu bị đổi +0.025, SP/ROUGE −0.002…−0.006 (docs/journal.md).
+MIRROR_RULES: list[tuple[str, str, str]] = [
+    (PROPTIT, "proptit", "ProPTIT"),
+    (PROPTIT, "pro ptit", "ProPTIT"),
+    (MULTIMEDIA, "clb mm", "CLB MM"),
+    (MULTIMEDIA, "mm ptit", "MM PTIT"),
+    (GCC, "clb game", "CLB game"),
+]
+
+
+def mirror_aliases(query: str, answer: str) -> str:
+    """Thêm tên CLB người hỏi dùng vào ngoặc sau lần nhắc đầu của tên chính thức (nếu câu trả lời chưa có tên đó)."""
+    text = f" {strip_accents(expand_query(query)).lower()} "
+    for canon, alias, form in MIRROR_RULES:
+        if f" {alias} " not in text or canon not in answer or form.lower() in answer.lower():
+            continue
+        labelled = f"{canon[:-1]}, {form})" if canon.endswith(")") else f"{canon} ({form})"
+        answer = answer.replace(canon, labelled, 1)
+    return answer

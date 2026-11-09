@@ -1,7 +1,7 @@
 # CLAUDE.md — NeoRAG Cup 2026 (bài dự thi cá nhân)
 
 Hệ thống RAG hỏi đáp về cộng đồng S2B (CLB Lập Trình PTIT, Multimedia PTIT, GCC).
-Repo tạo từ template của BTC (remote `upstream`). Tài liệu đề: `README.md`, `docs/rules.md`,
+Repo tạo từ template của BTC (remote `upstream`). README gốc BTC ở `docs/competition.md`; tài liệu đề: `docs/rules.md`,
 `docs/evaluation.md`, `docs/submission.md`, `docs/guide.md`, `docs/gateway.md`, `data/README.md`.
 
 ## Quy tắc bắt buộc
@@ -58,4 +58,7 @@ Response Relevancy, 1 − Noise Sensitivity, Abstention). Groundedness tính tr�
 ## Trạng thái hiện tại
 - Baseline BTC: train retrieval 0.72, SP 0.74, ROUGE-L 0.43; public 52.40 (ngưỡng 53.40).
 - **Tiến độ và bản đồ file: trong `docs/plan.md`** (mục "Tiến độ", "Bản đồ file của mình"). Đọc hai mục đó đầu mỗi phiên.
-- Đang làm: đã chốt `S2BPipeline` = **A5** (public #9 **89.15**: câu trả lời A2 + gộp nguồn của 2 lần haiku đọc, retrieval 93.93; mỗi câu 2 lần gọi) trên nhánh `feature/casual-eval`. Trước đó A2 #7 88.17; A3, A4 bỏ. Tiếp theo: tìm thêm điểm retrieval (mục tiêu 90), PR vào develop + merge `feature/chatbot` (chatbot chỉ cần lần gọi 1, phải ẩn phần Ý HỎI/NGUỒN), README/ADR/slide; code freeze 07/11.
+- Đang làm: **CHỐT `S2BPipeline` = R12MBR** (public #17 **89.99**) cho private 08/11. Lịch sử: A5 (#9 89.15); 06/11: F (prompt chép nguyên văn + ví dụ, #11 89.01) và MBR chọn câu trả lời trong 4 bản A/A4/E2/F (`S2BPipelineMBR`, #12 89.26, gấp đôi số lần gọi, dưới ngưỡng 89.45) → giữ A5. 07/11 thử thêm 5 hướng không tốn thêm lần gọi (chọn câu theo Relevancy/độ ngắn/bám tài liệu,
+  hậu xử lý ROUGE, quota CLB hạng 11–20): đều ≈0 hoặc âm trên holdout (xem `docs/journal.md`) → CHỐT A5, DỪNG tối ưu điểm.
+  07/11 (người dùng muốn thử tiếp): **R11** `S2BPipelineR11` = A5 + xếp lại top-5 theo đồng thuận 2 lần đọc (holdout retrieval
+  96.06 → 97.58, dev không đổi, 0 USD) → **public #13 89.42** (retrieval 93.93 → 94.50) → `S2BPipeline` = R11; rồi **R12** (kiểm tra toàn corpus cho câu gắn cờ, #15 retrieval 94.82, gốc 89.36 do nhiễu judge) → **`S2BPipeline` = R12** từ 07/11. R13 (kiểm tra mọi câu, ~0.40 USD) = R12 trên dev/holdout → bỏ. **Public #16 R12+MBR 89.59** (cao nhất) → sinh lại câu trả lời khi R12 bổ sung đoạn → **public #17 89.99** (nộp lại 89.92) → **CHỐT `S2BPipeline` = R12MBR** (4 lần đọc/câu) + sửa lỗi tách bản A + đồng bộ id theo câu trả lời mới (07/11). **Private 08/11:** R12MBR 89.95 (nộp lại 89.94), R12MBR + paren **90.05** (cao nhất, BTC tính lần cao nhất) → **`S2BPipeline` = `S2BPipelineR12MBRParen`** (09/11, để repo tái lập bài cao nhất; paren trong mức nhiễu, xem journal). Tiếp theo: slide theo `docs/pitching-pipeline.md`.

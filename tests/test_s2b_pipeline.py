@@ -387,12 +387,13 @@ def test_a3_class_uses_trim_hedges():
     assert pipeline.run("câu hỏi").answer == "Có phòng riêng cho thành viên."
 
 
-def test_default_pipeline_is_a5_submission_config():
+def test_default_pipeline_is_r12mbr_submission_config():
     from s2b_rag.generate import SYSTEM_PROMPT_A, SYSTEM_PROMPT_A4
-    from s2b_rag.pipeline import S2BPipeline, S2BPipelineA5
+    from s2b_rag.pipeline import S2BPipeline, S2BPipelineR12MBR
 
     pipeline = S2BPipeline(retriever="bm25_noaccent_bi", llm=FakeLLM())
-    assert isinstance(pipeline, S2BPipelineA5) and pipeline.second_prompt == SYSTEM_PROMPT_A4
+    assert pipeline.keep_answer_sources
+    assert isinstance(pipeline, S2BPipelineR12MBR) and pipeline.second_prompt == SYSTEM_PROMPT_A4
     assert (pipeline.n_context, pipeline.n_retrieved, pipeline.system_prompt) == (
         20,
         10,
@@ -455,6 +456,67 @@ def test_a5_keeps_first_answer_and_merges_sources_of_second_read():
     assert out.retrieved_ids[:5] == [4, 12, 8, 1, 2] and len(out.retrieved_ids) == 10
 
 
+def test_consensus_first_reorders_only_top5_and_is_stable():
+    from s2b_rag.generate import consensus_first
+
+    ids = [1, 69, 63, 67, 4, 9, 8, 7, 6, 5]
+    assert consensus_first(ids, {69}) == [69, 1, 63, 67, 4, 9, 8, 7, 6, 5]
+    assert consensus_first(ids, set()) == ids  # không đồng thuận → giữ nguyên
+    assert consensus_first(ids, {9}) == ids  # đoạn ngoài top-5 không được kéo lên
+
+
+def test_r11_puts_doc_chosen_by_both_reads_first_with_same_answer():
+    from s2b_rag.generate import SYSTEM_PROMPT_A, SYSTEM_PROMPT_A4
+    from s2b_rag.pipeline import S2BPipelineA5, S2BPipelineR11
+
+    replies = {
+        SYSTEM_PROMPT_A: "Ý HỎI:\nÝ 1: x | NGUỒN: 3\nÝ 2: y | NGUỒN: 7\nTRẢ LỜI:\nCâu trả lời lần một.",
+        SYSTEM_PROMPT_A4: "Ý HỎI:\nÝ 1: x | NGUỒN: 7\nTRẢ LỜI:\nLần hai.",
+    }
+    docs = [Document(i, "CLB Lập Trình PTIT", "Chủ đề", f"Đoạn {i}.") for i in range(1, 26)]
+    outs = []
+    for cls in (S2BPipelineA5, S2BPipelineR11):
+        pipeline = cls(
+            retriever="bm25_noaccent_bi", llm=FakeLLM(lambda m: replies[m[0]["content"]])
+        )
+        pipeline.retriever = _FixedRanker(list(range(1, 26)))
+        pipeline.index(docs)
+        outs.append(pipeline.run("câu hỏi"))
+    a5, r11 = outs
+    assert a5.retrieved_ids[:5] == [3, 7, 1, 2, 4]
+    assert r11.retrieved_ids[:5] == [7, 3, 1, 2, 4]  # 7 được cả 2 lần đọc chọn
+    assert r11.retrieved_ids[5:] == a5.retrieved_ids[5:] and r11.answer == a5.answer
+
+
+def test_r11mbr_takes_answer_from_mbr_and_top5_order_from_r11():
+    from s2b_rag.generate import (
+        SYSTEM_PROMPT_A,
+        SYSTEM_PROMPT_A4,
+        SYSTEM_PROMPT_E2,
+        SYSTEM_PROMPT_F,
+    )
+    from s2b_rag.pipeline import S2BPipelineMBR, S2BPipelineR11, S2BPipelineR11MBR
+
+    replies = {
+        SYSTEM_PROMPT_A: "Ý HỎI:\nÝ 1: x | NGUỒN: 3\nÝ 2: y | NGUỒN: 7\nTRẢ LỜI:\nCLB thành lập năm 2011.",
+        SYSTEM_PROMPT_A4: "Ý HỎI:\nÝ 1: x | NGUỒN: 7\nTRẢ LỜI:\nCLB được thành lập năm 2011 tại PTIT.",
+        SYSTEM_PROMPT_E2: "CLB được thành lập năm 2011 tại PTIT.\nNGUỒN: 7",
+        SYSTEM_PROMPT_F: "Ý HỎI:\nÝ 1: x | NGUỒN: 7\nTRẢ LỜI:\nCLB được thành lập năm 2011 tại PTIT.",
+    }
+    docs = [Document(i, "CLB Lập Trình PTIT", "Chủ đề", f"Đoạn {i}.") for i in range(1, 26)]
+    outs = {}
+    for cls in (S2BPipelineMBR, S2BPipelineR11, S2BPipelineR11MBR):
+        pipeline = cls(
+            retriever="bm25_noaccent_bi", llm=FakeLLM(lambda m: replies[m[0]["content"]])
+        )
+        pipeline.retriever = _FixedRanker(list(range(1, 26)))
+        pipeline.index(docs)
+        outs[cls] = pipeline.run("câu hỏi")
+    both = outs[S2BPipelineR11MBR]
+    assert both.answer == outs[S2BPipelineMBR].answer == "CLB được thành lập năm 2011 tại PTIT."
+    assert both.retrieved_ids[:5] == outs[S2BPipelineR11].retrieved_ids[:5] == [7, 3, 1, 2, 4]
+
+
 def test_a2_still_calls_llm_once():
     from s2b_rag.pipeline import S2BPipelineA2
 
@@ -486,3 +548,133 @@ def test_a6_third_read_only_fills_free_top5_slots():
     assert out.answer == "Câu trả lời lần một."
     # chính [4] → phụ [9] → tầng 3 chỉ thêm 17 (4 đã có) → rồi retriever
     assert out.retrieved_ids[:5] == [4, 9, 17, 1, 2] and len(out.retrieved_ids) == 10
+
+
+# ---- Chatbot: retrieve / stream_answer / finish_answer (không đụng run()) ----
+
+
+class FakeStreamClient:
+    """Client giả kiểu openai: `chat.completions.create(..., stream=True)` nhả từng mẩu chữ."""
+
+    def __init__(self, pieces):
+        self.pieces, self.calls = pieces, []
+        self.chat = self.completions = self
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+
+        def chunk(text):
+            delta = type("Delta", (), {"content": text})()
+            return type("Chunk", (), {"choices": [type("Choice", (), {"delta": delta})()]})()
+
+        return [chunk(p) for p in self.pieces] + [type("Chunk", (), {"choices": []})()]
+
+
+def _stream(pieces, wait_head=True):
+    from s2b_rag.generate import AnswerStreamFilter
+
+    f = AnswerStreamFilter(wait_head)
+    return "".join(f.feed(p) for p in pieces) + f.finish()
+
+
+def test_stream_filter_hides_aspects_and_sources_even_when_split_mid_word():
+    pieces = ["Ý HỎI:\nÝ 1: x | NGU", "ỒN: 4\nTRẢ L", "ỜI:\nCó. CLB ", "đạt giải.\nNGU", "ỒN: 4"]
+    assert _stream(pieces) == "Có. CLB đạt giải.\n"
+    assert (
+        _stream(["Trả lời ", "một dòng.\n", "NGUỒN: 1, 2"], wait_head=False)
+        == "Trả lời một dòng.\n"
+    )
+    assert (
+        _stream(["Ý HỎI:\nÝ 1: x | NGUỒN: 4\n", "quên TRẢ LỜI"]) == ""
+    )  # lỗi định dạng: không lộ gì
+    # câu bắt đầu bằng "Nguồn" nhưng không phải dòng nguồn vẫn được hiện
+    assert _stream(
+        ["Ý HỎI:\nÝ 1: x | NGUỒN: 4\n**TRẢ LỜI:**\n", "Nguồn tin cho biết CLB tuyển."]
+    ) == ("Nguồn tin cho biết CLB tuyển.")
+
+
+def test_chatbot_stream_matches_submission_answer_and_prompt():
+    from s2b_rag.pipeline import S2BPipeline
+
+    raw = (
+        "Ý HỎI:\nÝ 1: x | NGUỒN: 7\nÝ 2: y | NGUỒN: 3, 12\nTRẢ LỜI:\n"
+        "**Có**, CLB có phòng riêng. Tài liệu không ghi giờ mở cửa."
+    )
+    llm = FakeLLM(lambda m: raw)
+    docs = [Document(i, "CLB Lập Trình PTIT", "Chủ đề", f"Đoạn {i}.") for i in range(1, 26)]
+    pipeline = S2BPipeline(retriever="bm25_noaccent_bi", llm=llm)
+    pipeline.retriever = _FixedRanker(list(range(1, 26)))
+    pipeline.index(docs)
+    pipeline.stream_client = client = FakeStreamClient([raw[:9], raw[9:40], raw[40:70], raw[70:]])
+
+    expected = pipeline.run("câu hỏi").answer  # bài nộp
+    r = pipeline.retrieve("câu hỏi")
+    stream = pipeline.stream_answer("câu hỏi", r.context)
+    visible = "".join(stream)
+    answer, cited = pipeline.finish_answer(stream.raw, r.context)
+
+    assert len(r.context) == 20 and len(r.docs) == 10  # haiku đọc 20 đoạn như bài nộp
+    assert (
+        "Ý HỎI" not in visible and "NGUỒN" not in visible and visible.lstrip("*").startswith("Có")
+    )
+    assert answer == expected == "Có, CLB có phòng riêng."  # cùng hậu xử lý G2 + A2 với bài nộp
+    assert cited == [7, 3, 12]
+    (call,) = client.calls
+    assert call["messages"] == llm.calls[0]  # cùng prompt với lần gọi 1 của bài nộp
+    assert (
+        call["stream"] is True and call["model"] == "claude-haiku-5-5" and "temperature" not in call
+    )
+
+
+def test_mbr_select_picks_consensus_and_skips_empty():
+    from s2b_rag.generate import mbr_select
+
+    a = "CLB Lập Trình PTIT thành lập ngày 09/10/2011."
+    b = "CLB Lập Trình PTIT được thành lập ngày 09/10/2011."
+    odd = "GCC ra đời năm 2023 với nhiều hoạt động khác nhau."
+    assert mbr_select([odd, a, b]) in (a, b)  # bản lạc loài không được chọn
+    assert mbr_select(["", a]) == a and mbr_select([]) == ""
+    assert mbr_select([a, a]) == a  # hòa → giữ bản đứng trước
+
+
+def test_prompt_f_is_a_plus_verbatim_rule_and_examples():
+    from s2b_rag.generate import SYSTEM_PROMPT_A, SYSTEM_PROMPT_F
+
+    head, _, examples = SYSTEM_PROMPT_F.partition("\n\nVÍ DỤ CÁCH VIẾT PHẦN TRẢ LỜI")
+    rule = "\n- Ưu tiên chép nguyên cụm câu của tài liệu theo đúng thứ tự từ"
+    start = head.index(rule)
+    assert head[:start] + head[head.index("\n", start + 1) :] == SYSTEM_PROMPT_A
+    assert examples.count("Câu hỏi:") == 3 and "KHÔNG dùng thông tin trong ví dụ" in examples
+
+
+def test_mbr_reads_four_times_keeps_a5_ids_and_picks_consensus_answer():
+    from s2b_rag.generate import (
+        SYSTEM_PROMPT_A,
+        SYSTEM_PROMPT_A4,
+        SYSTEM_PROMPT_E2,
+        SYSTEM_PROMPT_F,
+    )
+    from s2b_rag.pipeline import S2BPipelineA5, S2BPipelineMBR
+
+    common = "CLB Lập Trình PTIT thành lập ngày 09/10/2011 với phương châm chia sẻ."
+    replies = {
+        SYSTEM_PROMPT_A: "Ý HỎI:\nÝ 1: x | NGUỒN: 4\nTRẢ LỜI:\nGCC ra đời năm 2023.",  # bản lạc loài
+        SYSTEM_PROMPT_A4: f"Ý HỎI:\nÝ 1: x | NGUỒN: 4, 9\nTRẢ LỜI:\n{common}",
+        SYSTEM_PROMPT_E2: f"{common}\nNGUỒN: 4",
+        SYSTEM_PROMPT_F: f"Ý HỎI:\nÝ 1: x | NGUỒN: 4\nTRẢ LỜI:\n{common}",
+    }
+    llm = FakeLLM(lambda m: replies[m[0]["content"]])
+    docs = [Document(i, "CLB Lập Trình PTIT", "Chủ đề", f"Đoạn {i}.") for i in range(1, 26)]
+    pipeline = S2BPipelineMBR(retriever="bm25_noaccent_bi", llm=llm)
+    pipeline.retriever = _FixedRanker(list(range(1, 26)))
+    pipeline.index(docs)
+    out = pipeline.run("câu hỏi")
+    assert len(llm.calls) == 4 and out.answer == common
+    assert out.retrieved_ids[:2] == [4, 9]  # nguồn gộp như A5
+    assert pipeline._others == []  # không rò sang lần sau
+    # chatbot (finish_answer) chỉ có bản A → không chọn MBR
+    assert pipeline.finish_answer(replies[SYSTEM_PROMPT_A], docs[:20])[0] == "GCC ra đời năm 2023."
+    assert (
+        type(S2BPipelineMBR.__mro__[1]) is type(S2BPipelineA5)
+        and S2BPipelineMBR.__mro__[1] is S2BPipelineA5
+    )
