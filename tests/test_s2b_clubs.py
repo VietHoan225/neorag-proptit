@@ -96,3 +96,17 @@ def test_quota_after_reranker_restores_slot_that_reranker_removed():
     r.index(CORPUS)
     ranked = [i for i, _ in r.search("bất kỳ")]
     assert ranked[:5] == [1, 2, 3, 4, 6]  # weight=0: không đổi thứ tự nào khác ngoài suất quota
+
+
+def test_mirror_aliases_adds_user_name_once():
+    from s2b_rag.aliases import mirror_aliases
+
+    a = "CLB Lập Trình PTIT thành lập 2011. CLB Lập Trình PTIT có phương châm..."
+    out = mirror_aliases("proptit thanh lap nam nao", a)
+    assert out.startswith("CLB Lập Trình PTIT (ProPTIT) thành lập")
+    assert out.count("(ProPTIT)") == 1
+    gcc = mirror_aliases("clb game co day ve ko", "CLB Nhà Sáng Tạo Game PTIT (GCC) có dạy vẽ.")
+    assert gcc.startswith("CLB Nhà Sáng Tạo Game PTIT (GCC, CLB game)")
+    # câu hỏi dùng tên chính thức, hoặc câu trả lời đã có tên đó → giữ nguyên
+    assert mirror_aliases("clb lap trinh ptit o dau", a) == a
+    assert mirror_aliases("proptit o dau", "ProPTIT ở PTIT.") == "ProPTIT ở PTIT."

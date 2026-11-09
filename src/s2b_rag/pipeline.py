@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from neorag.data import Document
 from neorag.llm import LLMClient
 from neorag.pipelines import RAGOutput, RAGPipeline
+from s2b_rag.aliases import mirror_aliases
 from s2b_rag.evidence import (
     aspect_lines,
     check_messages,
@@ -625,8 +626,24 @@ class S2BPipelineR12MBR(S2BPipelineR11MBR):
         return RAGOutput(answer=new_answer, retrieved_ids=new_ids)
 
 
-class S2BPipeline(S2BPipelineR12MBR):
-    """CẤU HÌNH NỘP BÀI (chốt 07/11) = R12MBR: public #17 89.99 (nộp lại 89.92); retrieval 94.82, SP 96.15, ROUGE-L 63.70.
+class S2BPipelineR12MBRParen(S2BPipelineR12MBR):
+    """Thí nghiệm 08/11 = R12MBR + `mirror_aliases`: người hỏi viết "proptit"/"clb mm"/"clb game" → câu trả lời ghi
+    thêm tên đó trong ngoặc, ví dụ "CLB Lập Trình PTIT (ProPTIT)". Chỉ hậu xử lý câu trả lời, id giữ nguyên;
+    cùng prompt với R12MBR → chạy lại trúng cache (0 USD). Judge trên câu bị đổi: Relevancy +0.025 (dev/holdout),
+    quy ra toàn bộ ≈ 0 (dưới điều kiện đặt trước) — nộp thử vì private tính lần nộp cao nhất.
+    Chạy: `--pipeline s2b_rag.pipeline:S2BPipelineR12MBRParen`."""
+
+    def run(self, query: str) -> RAGOutput:
+        out = super().run(query)
+        return RAGOutput(answer=mirror_aliases(query, out.answer), retrieved_ids=out.retrieved_ids)
+
+
+class S2BPipeline(S2BPipelineR12MBRParen):
+    """CẤU HÌNH NỘP BÀI (09/11) = R12MBR + paren — bài Private điểm cao nhất **90.05** (BTC tính lần cao nhất).
+    Paren chỉ thêm tên CLB người hỏi dùng vào ngoặc (11/42 câu private); id giữ nguyên. R12MBR không paren: private
+    89.95 (nộp lại 89.94). Trên dev/holdout paren không đổi Noise → phần +0.10 nằm trong nhiễu (docs/journal.md).
+
+    R12MBR (chốt 07/11): public #17 89.99 (nộp lại 89.92); retrieval 94.82, SP 96.15, ROUGE-L 63.70.
     = R11 (đoạn được 2 lần đọc đồng thuận lên đầu top-5) + R12 (câu bị gắn cờ → kiểm tra toàn corpus, bổ sung đoạn có
     trích nguyên văn) + MBR (chọn câu trả lời đồng thuận trong 4 bản A/A4/E2/F) + khi có đoạn bổ sung thì sinh lại câu
     trả lời và giữ ở hạng 6–10 đoạn mà câu trả lời dùng (`keep_answer_sources`).
