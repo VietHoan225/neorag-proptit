@@ -44,3 +44,6 @@ docs/slides/
 
 # Slide đã build (sinh từ docs/slides/deck.md)
 docs/slides/out/
+docs/pitching-pipeline.md
+docs/pitch-review.md
+docs/pitch-script.md
