@@ -15,6 +15,7 @@ bài. Lịch sử: S2BPipelineR9 (#4) → S2BPipelineCtx20 → S2BPipelineE2 (#5
 
 from __future__ import annotations
 
+import os
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -60,7 +61,7 @@ from s2b_rag.generate import (
 from s2b_rag.retrieval.dense import CACHE_PATH
 from s2b_rag.retrieval.presets import DEFAULT, RETRIEVERS
 
-LLM_MODEL = "claude-haiku-5-5"  # LLM duy nhất được phép; KHÔNG truyền temperature
+LLM_MODEL = os.getenv("LLM_MODEL", "claude-haiku-5-5")
 
 
 @dataclass

@@ -78,10 +78,13 @@ def parse_rewrite(reply: str, original: str, max_subqueries: int = 3) -> Rewrite
 
 
 class LLMQueryRewriter:
-    """R7: viết lại câu hỏi bằng claude-haiku-5-5 (1 lần gọi ngắn, có cache, không truyền temperature)."""
+    """R7: viết lại câu hỏi bằng LLM (1 lần gọi ngắn, có cache, không truyền temperature)."""
 
-    def __init__(self, llm, model: str = "claude-haiku-5-5"):
-        self.llm, self.model = llm, model
+    def __init__(self, llm, model: str | None = None):
+        import os
+
+        self.llm = llm
+        self.model = model or os.getenv("LLM_MODEL", "claude-haiku-5-5")
 
     def rewrite(self, query: str) -> Rewrite:
         messages = [

@@ -7,6 +7,7 @@ from collections.abc import Callable
 import numpy as np
 
 from neorag.data import Document
+from neorag.embeddings import LocalEmbedder, is_downloaded
 from neorag.llm import LLMClient
 from neorag.pipelines.baseline import GatewayEmbedder
 
@@ -32,7 +33,55 @@ class DenseRetriever:
         return [(self.ids[i], float(scores[i])) for i in order]
 
 
+class SafeLocalEmbedder:
+    """LocalEmbedder bge-m3: chạy trên GPU nếu có, max_seq_length=512 để nạp nhanh."""
+
+    def __init__(self, model_name: str = "BAAI/bge-m3", device: str | None = None, batch_size: int = 32):
+        import os
+        import torch
+
+        default_device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.model_name = model_name
+        self.device = device or os.getenv("EMBEDDING_DEVICE", default_device)
+        self.batch_size = batch_size
+        self._model = None
+
+    def load(self):
+        if self._model is None:
+            from sentence_transformers import SentenceTransformer
+            self._model = SentenceTransformer(
+                self.model_name, device=self.device, local_files_only=is_downloaded(self.model_name)
+            )
+            self._model.max_seq_length = 512
+        return self._model
+
+    def embed(self, texts: list[str]) -> np.ndarray:
+        model = self.load()
+        vectors = model.encode(
+            texts,
+            batch_size=self.batch_size,
+            normalize_embeddings=True,
+            show_progress_bar=False,
+        )
+        return np.asarray(vectors, dtype=np.float32)
+
+
 def gateway_dense(query_fn: Callable[[str], str] = str) -> DenseRetriever:
-    """bge-m3 qua gateway. Mặc định = dense baseline của BTC (embed nguyên văn câu hỏi)."""
-    llm = LLMClient(cache_path=CACHE_PATH)
-    return DenseRetriever(GatewayEmbedder(llm, EMBEDDING_MODEL), query_fn)
+    """bge-m3 qua gateway hoặc local.
+
+    Ưu tiên LocalEmbedder nếu đã có model trên máy (hoặc EMBEDDING_PROVIDER=local / base_url
+    không phải BTC), tránh lỗi khi API key gateway hết hạn hoặc khi dùng LLM bên thứ ba (Groq/Gemini).
+    """
+    import os
+
+    force_gateway = os.getenv("EMBEDDING_PROVIDER") == "gateway"
+    if not force_gateway and (
+        os.getenv("EMBEDDING_PROVIDER") == "local"
+        or not os.getenv("OPENAI_BASE_URL", "").startswith("https://proptit.dekthe.dev")
+        or is_downloaded("BAAI/bge-m3")
+    ):
+        embedder = SafeLocalEmbedder("BAAI/bge-m3")
+    else:
+        llm = LLMClient(cache_path=CACHE_PATH)
+        embedder = GatewayEmbedder(llm, EMBEDDING_MODEL)
+    return DenseRetriever(embedder, query_fn)
